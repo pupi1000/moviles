@@ -9,10 +9,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  camera: ^0.10.6 # Era 0.10.5+9, ahora sugerimos la última 0.10.6
+  camera: ^0.11.1 # Era 0.10.5+9, ahora sugerimos la última 0.10.6
   tflite_flutter: ^0.11.0 # Mantener esta versión, parece estable
   image: ^4.1.7 # Mantener esta versión, es compatible
-  permission_handler: ^11.4.0 # Era 11.3.1, ahora sugerimos la última 11.4.0
+  permission_handler: ^12.0.0+1 # Era 11.3.1, ahora sugerimos la última 11.4.0
   path_provider: ^2.1.3 # Parece ok, pero si da problemas, se puede actualizar a la última
   
   cupertino_icons: ^1.0.8 # Actualizada a la última para compatibilidad
@@ -20,7 +20,7 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^3.0.2 # Actualizada a la última para compatibilidad
+  flutter_lints: ^6.0.0 # Actualizada a la última para compatibilidad
   
 flutter:
   uses-material-design: true
