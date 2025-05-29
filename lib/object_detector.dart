@@ -116,26 +116,23 @@ class ObjectDetector {
 
   // Convierte img.Image (paquete 'image') a ByteBuffer RGB.
   ByteBuffer _imageToByteBuffer(img.Image image) {
-    // Aseguramos que la imagen sea RGB, incluso si la original tenía alfa.
-    // Esto se logra creando una nueva imagen con el formato RGB y copiando los píxeles.
-    final img.Image rgbImage = img.Image(width: image.width, height: image.height);
-    for (int y = 0; y < image.height; y++) {
-      for (int x = 0; x < image.width; x++) {
-        final pixel = image.getPixel(x, y);
-        // Usamos setPixelRgb, que se asegura de guardar solo R, G, B.
-        //rgbImage.setPixelRgb(x, y, img.getRed(pixel), img.getG(pixel), img.getBlue(pixel));
+    final int width = image.width;
+    final int height = image.height;
+    final Uint8List rgbBytes = Uint8List(width * height * 3); // 3 canales (R, G, B)
+
+    int byteIndex = 0;
+    for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x++) {
+        // CORRECCIÓN: El tipo de retorno de image.getPixel ha cambiado a img.Pixel
+        final img.Pixel pixel = image.getPixel(x, y); 
+        
+        // Ahora accedemos directamente a las propiedades r, g, b del objeto Pixel
+        rgbBytes[byteIndex++] = pixel.r.toInt(); // Rojo
+        rgbBytes[byteIndex++] = pixel.g.toInt();  // Verde
+        rgbBytes[byteIndex++] = pixel.b.toInt();  // Azul
       }
     }
-
-    // Ahora obtenemos los bytes de la imagen RGB.
-    // getBytes() en el paquete 'image' devuelve un List<int> de los píxeles.
-    // Luego lo convertimos a Uint8List y finalmente a ByteBuffer.
-    final List<int> pixelData = rgbImage.getBytes();
-    final Uint8List bytes = Uint8List.fromList(pixelData);
-   // return bytes.buffer.asByteBuffer();
-
-    // Si algo falla, lanzamos una excepción.
-    throw Exception('Failed to convert image to ByteBuffer');
+    return rgbBytes.buffer;
   }
 
   void close() {
