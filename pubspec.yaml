@@ -1,0 +1,32 @@
+name: detectorfilagasolina
+description: "A new Flutter project."
+publish_to: 'none'
+version: 0.1.0
+
+environment:
+  sdk: '^3.0.0' # Asegúrate de que esto sea compatible con tu SDK (3.7.2 es compatible con ^3.0.0)
+
+dependencies:
+  flutter:
+    sdk: flutter
+  camera: ^0.10.5+9
+  tflite_flutter: ^0.11.0 # <--- CAMBIO AQUÍ
+  image: ^4.1.7
+  permission_handler: ^11.3.1
+  path_provider: ^2.1.3
+  cupertino_icons: ^1.0.2
+
+dev_dependencies: # Estas son para desarrollo y pruebas, no para la app final
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0 # O la versión que tengas, importante que no duplique.
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/tflite/ssd_mobilenet.tflite
+    - assets/tflite/labelmap.txt
+    - assets/images/bus.png
+    - assets/images/car.png
+    - assets/images/motorcycle.png
+    - assets/images/truck.png
