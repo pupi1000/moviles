@@ -1,120 +1,126 @@
-// Pega aquí el código completo de la clase `SideBarWidget` que te di antes.
+// lib/sidebar_widget.dart
 import 'package:flutter/material.dart';
 
 class SideBarWidget extends StatefulWidget {
-  const SideBarWidget({Key? key}) : super(key: key);
+  static GlobalKey<_SideBarWidgetState> sideBarKey =
+      GlobalKey<_SideBarWidgetState>();
 
-  // Usamos un GlobalKey para acceder a los métodos del estado desde fuera
-  static final GlobalKey<_SideBarWidgetState> sideBarKey = GlobalKey<_SideBarWidgetState>();
+  SideBarWidget({Key? key}) : super(key: sideBarKey);
 
   @override
   _SideBarWidgetState createState() => _SideBarWidgetState();
 }
 
 class _SideBarWidgetState extends State<SideBarWidget> {
-  int carCount = 0;
-  int truckCount = 0;
-  int busCount = 0;
-  int motorcycleCount = 0;
-  String estimatedTime = "min: 0.00";
-
-  // Métodos para ser llamados desde CameraScreen
-  void resetCounters() {
-    setState(() {
-      carCount = 0;
-      truckCount = 0;
-      busCount = 0;
-      motorcycleCount = 0;
-      updateTextViews(); // Llama a la actualización después de reiniciar
-      updateEstimatedTime(); // Llama a la actualización después de reiniciar
-    });
-  }
-
-  void updateTextViews() {
-    // En un StatefulWidget, setState ya reconstruirá el widget
-    // No necesitas lógica extra aquí aparte de llamar a setState si los valores
-    // cambian directamente en el estado.
-    // Aquí no hace nada porque los cambios ya se hacen en los incrementos.
-  }
+  int _carCount = 0;
+  int _motorcycleCount = 0;
+  int _busCount = 0;
+  int _truckCount = 0;
+  String _estimatedTime = "00:00";
 
   void incrementCarCount() {
     setState(() {
-      carCount++;
-    });
-  }
-
-  void incrementTruckCount() {
-    setState(() {
-      truckCount++;
-    });
-  }
-
-  void incrementBusCount() {
-    setState(() {
-      busCount++;
+      _carCount++;
     });
   }
 
   void incrementMotorcycleCount() {
     setState(() {
-      motorcycleCount++;
+      _motorcycleCount++;
+    });
+  }
+
+  void incrementBusCount() {
+    setState(() {
+      _busCount++;
+    });
+  }
+
+  void incrementTruckCount() {
+    setState(() {
+      _truckCount++;
+    });
+  }
+
+  void resetCounters() {
+    setState(() {
+      _carCount = 0;
+      _motorcycleCount = 0;
+      _busCount = 0;
+      _truckCount = 0;
     });
   }
 
   void updateEstimatedTime() {
-    double carTime = 200.0;
-    double motorcycleTime = 120.0;
-    double busTime = 470.0;
-    double truckTime = 570.0;
+    // *** Lógica de cálculo de tiempo modificada: 2 minutos por cada vehículo ***
+    int totalVehicles = _carCount + _motorcycleCount + _busCount + _truckCount;
+    int estimatedMinutes = totalVehicles * 2; // 2 minutos por cada vehículo
 
-    double totalSeconds =
-        (carCount * carTime) +
-        (motorcycleCount * motorcycleTime) +
-        (busCount * busTime) +
-        (truckCount * truckTime);
+    int hours = estimatedMinutes ~/ 60;
+    int minutes = estimatedMinutes % 60;
 
-    double totalMinutes = totalSeconds / 60.0;
     setState(() {
-      estimatedTime = "min: ${totalMinutes.toStringAsFixed(2)}";
+      _estimatedTime =
+          "${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}";
     });
+  }
+
+  String getEstimatedTime() {
+    return _estimatedTime;
   }
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: 150,
-      color: Colors.black.withOpacity(0.5),
-      padding: const EdgeInsets.all(8.0),
+      color: Colors.black54,
+      padding: const EdgeInsets.all(16.0),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _buildVehicleCounter("assets/images/car.png", "Coche", carCount),
-          _buildVehicleCounter("assets/images/motorcycle.png", "Moto", motorcycleCount),
-          _buildVehicleCounter("assets/images/bus.png", "Bus", busCount),
-          _buildVehicleCounter("assets/images/truck.png", "Camión", truckCount),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Text(
+            'Conteo:',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Carros: $_carCount',
+            style: const TextStyle(color: Colors.white, fontSize: 16),
+          ),
+          Text(
+            'Motos: $_motorcycleCount',
+            style: const TextStyle(color: Colors.white, fontSize: 16),
+          ),
+          Text(
+            'Buses: $_busCount',
+            style: const TextStyle(color: Colors.white, fontSize: 16),
+          ),
+          Text(
+            'Camiones: $_truckCount',
+            style: const TextStyle(color: Colors.white, fontSize: 16),
+          ),
           const SizedBox(height: 20),
-          Text(
-            estimatedTime,
-            style: const TextStyle(fontSize: 16, color: Colors.white),
+          const Text(
+            'Tiempo estimado:',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildVehicleCounter(String imagePath, String label, int count) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Column(
-        children: [
-          Image.asset(imagePath, width: 40, height: 40),
+          const SizedBox(height: 10),
           Text(
-            label,
-            style: const TextStyle(color: Colors.white),
-          ),
-          Text(
-            count.toString(),
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+            _estimatedTime,
+            style: const TextStyle(
+              color: Colors.orange,
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ],
       ),

@@ -2,13 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:image/image.dart' as img;
 import 'dart:typed_data';
-import 'package:permission_handler/permission_handler.dart'; // Para manejar permisos
+import 'package:permission_handler/permission_handler.dart';
 
-import 'object_detector.dart'; // Asegúrate de que este archivo exista
-import 'sidebar_widget.dart'; // Asegúrate de que este archivo exista
+import 'object_detector.dart';
+import 'sidebar_widget.dart';
+import 'report_manager.dart'; // Importa el manejador de reportes
 
 // Asegúrate de que esta variable `cameras` se inicialice en `main.dart`
 // y se pase a CameraScreen si es necesario.
+// Nota: 'cameras' está declarada como 'late List<CameraDescription> cameras;' en main.dart
+// y se inicializa antes de runApp. Flutter automáticamente la hace accesible.
+// Si esta 'cameras' en CameraScreen no está inicializada, es porque no se está
+// pasando correctamente o main.dart no la inicializó.
+// Para este ejemplo, asumimos que se inicializa globalmente o se pasa.
+// Si no, podrías pasarla como argumento al constructor de CameraScreen.
 List<CameraDescription> cameras = [];
 
 class CameraScreen extends StatefulWidget {
@@ -21,43 +28,48 @@ class CameraScreen extends StatefulWidget {
 class _CameraScreenState extends State<CameraScreen> {
   CameraController? _controller;
   ObjectDetector? _objectDetector;
-  // Usamos el GlobalKey para acceder a la instancia del estado de SideBarWidget
   final SideBarWidget _sideBar = SideBarWidget(key: SideBarWidget.sideBarKey);
 
   bool _isDetecting = false;
-  // Añadir un estado para las bounding boxes detectadas
   List<Map<String, dynamic>> _boundingBoxes = [];
+
+  // Datos actuales para el reporte
+  int _currentCarCount = 0;
+  int _currentMotorcycleCount = 0;
+  int _currentBusCount = 0;
+  int _currentTruckCount = 0;
+  String _currentEstimatedTime = "00:00";
 
   @override
   void initState() {
     super.initState();
-    _requestPermissions(); // Solicitar permisos al iniciar
+    _requestPermissions();
   }
 
   Future<void> _requestPermissions() async {
     if (await Permission.camera.request().isGranted) {
       _initializeCamera();
-      // Asegúrate de que INPUT_SIZE en ObjectDetector sea 300, si tu modelo lo espera.
       _objectDetector = ObjectDetector(300);
-      await _objectDetector!.loadModel(); // Esperar a que el modelo se cargue
+      await _objectDetector!.loadModel();
     } else {
-      // Manejar el caso de permisos denegados
       print("Permiso de cámara denegado.");
-      // Puedes mostrar un AlertDialog o un mensaje al usuario para informar.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Permiso de cámara denegado. No se puede iniciar la detección.')),
+      );
     }
   }
 
   Future<void> _initializeCamera() async {
-    // Asegurarse de que `cameras` esté inicializado globalmente en `main.dart`
-    // o pasarlo como argumento a CameraScreen.
+    // Accede a la variable `cameras` globalmente desde main.dart si está inicializada
+    // O podrías pasarla a CameraScreen si la inicializas solo en main.dart
     if (cameras.isEmpty) {
-      cameras = await availableCameras();
+      cameras = await availableCameras(); // Intentar obtenerlas de nuevo si están vacías aquí
     }
 
     if (cameras.isNotEmpty) {
       _controller = CameraController(
-        cameras[0], // Usa la primera cámara disponible
-        ResolutionPreset.medium, // Puedes probar con .high o .max si tu dispositivo lo soporta y no da OOM
+        cameras[0],
+        ResolutionPreset.medium,
         enableAudio: false,
         imageFormatGroup: ImageFormatGroup.yuv420,
       );
@@ -66,9 +78,8 @@ class _CameraScreenState extends State<CameraScreen> {
         if (!mounted) {
           return;
         }
-        setState(() {}); // Forzar un rebuild para mostrar la CameraPreview
+        setState(() {});
 
-        // Iniciar el stream de imágenes para procesamiento
         _controller!.startImageStream((CameraImage image) {
           if (!_isDetecting) {
             _isDetecting = true;
@@ -78,12 +89,24 @@ class _CameraScreenState extends State<CameraScreen> {
       }).catchError((Object e) {
         if (e is CameraException) {
           print('Error initializing camera: ${e.code}');
-          // Manejar errores específicos de la cámara, como si la cámara ya está en uso.
+          String errorMessage = 'Error al iniciar la cámara: ${e.code}';
+          if (e.code == 'CameraAccessDenied') {
+            errorMessage = 'Acceso a la cámara denegado. Por favor, conceda el permiso.';
+          } else if (e.code == 'AlreadyStarted') {
+            errorMessage = 'La cámara ya está en uso.';
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(errorMessage)),
+          );
+        } else {
+          print('Error initializing camera: $e');
         }
       });
     } else {
       print("No se encontraron cámaras disponibles.");
-      // Puedes mostrar un mensaje al usuario.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se encontraron cámaras disponibles.')),
+      );
     }
   }
 
@@ -94,59 +117,50 @@ class _CameraScreenState extends State<CameraScreen> {
       return;
     }
 
-    // **** CRÍTICO PARA EVITAR OutOfMemoryError Y AJUSTAR AL MODELO ****
-    // Redimensionar la imagen a las dimensiones de entrada del modelo (300x300).
-    // Esto reduce significativamente el consumo de memoria y se alinea con el modelo.
     img.Image resizedImage = img.copyResize(originalImage, width: 300, height: 300);
 
-    // ** Considera las transformaciones de orientación aquí **
-    // Si tu modelo fue entrenado con imágenes rotadas (como se infiere de algunos ejemplos de TFLite con Android CameraX)
-    // o volteadas, aplica esas mismas transformaciones a `resizedImage`.
-    // Por ejemplo:
-    // resizedImage = img.copyRotate(resizedImage, 90); // Rotar 90 grados
-    // resizedImage = img.flipHorizontal(resizedImage); // Voltear horizontalmente
+    await _objectDetector!.recognizeImage(resizedImage);
 
-    // Llama al detector de objetos con la imagen redimensionada
-    await _objectDetector!.recognizeImage(resizedImage); // <-- Aquí le pasamos la imagen ya redimensionada
-
-    // Obtener las detecciones del detector
     final detectedBoxes = _objectDetector!.detectedBoundingBoxes;
 
-    // Actualizar el estado de _boundingBoxes para que CustomPaint repinte
     setState(() {
       _boundingBoxes = detectedBoxes;
     });
 
-    // Actualizar contadores en la barra lateral usando la GlobalKey
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final sideBarState = SideBarWidget.sideBarKey.currentState;
       if (sideBarState != null) {
-        sideBarState.resetCounters(); // Resetear contadores antes de actualizar
-        // Iterar sobre las detecciones para actualizar los contadores
+        sideBarState.resetCounters();
+        _currentCarCount = 0;
+        _currentMotorcycleCount = 0;
+        _currentBusCount = 0;
+        _currentTruckCount = 0;
+
         for (var box in detectedBoxes) {
           final classValue = box['classIndex'] as int;
-          // Asumiendo que 2: car, 3: motorcycle, 5: bus, 7: truck de tu labelmap
           if (classValue == 2) {
             sideBarState.incrementCarCount();
+            _currentCarCount++;
           } else if (classValue == 3) {
             sideBarState.incrementMotorcycleCount();
+            _currentMotorcycleCount++;
           } else if (classValue == 5) {
             sideBarState.incrementBusCount();
+            _currentBusCount++;
           } else if (classValue == 7) {
             sideBarState.incrementTruckCount();
+            _currentTruckCount++;
           }
-          // Si quieres ver las clases detectadas en el log para depurar:
-          // print("DEBUG: Detected class $classValue (label: ${box['label']})");
         }
         sideBarState.updateEstimatedTime();
+        _currentEstimatedTime = sideBarState.getEstimatedTime(); // Obtener el tiempo estimado
       }
     });
 
-    _isDetecting = false; // Liberar el bloqueo para la siguiente detección
+    _isDetecting = false;
   }
 
   // Convierte CameraImage (YUV420_888) a img.Image (RGB)
-  // Este código de conversión es estándar para YUV420_888 a RGB.
   img.Image? _convertYUV420toImage(CameraImage image) {
     try {
       final int width = image.width;
@@ -167,20 +181,15 @@ class _CameraScreenState extends State<CameraScreen> {
           final int UV_x = (x ~/ 2);
           final int UV_y = (y ~/ 2);
 
-          // Asegurarse de no exceder los límites de los arrays UV
           int uIndex = UV_y * uvRowStride + UV_x * uvPixelStride;
           int vIndex = UV_y * uvRowStride + UV_x * uvPixelStride;
 
-          // Clampear los índices para evitar OutOfBounds si hay un error de cálculo o formato inesperado
           uIndex = uIndex.clamp(0, uPlane.length - 1);
           vIndex = vIndex.clamp(0, vPlane.length - 1);
-
 
           final int V = vPlane[vIndex];
           final int U = uPlane[uIndex];
 
-          // Conversión YUV a RGB (Estándar BT.601)
-          // Estos son valores constantes para la conversión.
           int C = Y - 16;
           int D = U - 128;
           int E = V - 128;
@@ -203,6 +212,21 @@ class _CameraScreenState extends State<CameraScreen> {
     }
   }
 
+  void _saveReport() {
+    // Asegúrate de que ReportManager esté importado y accesible
+    ReportManager.addReport(
+      carCount: _currentCarCount,
+      motorcycleCount: _currentMotorcycleCount,
+      busCount: _currentBusCount,
+      truckCount: _currentTruckCount,
+      estimatedTime: _currentEstimatedTime,
+      timestamp: DateTime.now(),
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Reporte guardado exitosamente!')),
+    );
+  }
+
   @override
   void dispose() {
     _controller?.dispose();
@@ -219,27 +243,27 @@ class _CameraScreenState extends State<CameraScreen> {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
 
-    // Obtener las dimensiones del preview de la cámara
-    // NOTA: previewSize a menudo reporta en orientación de paisaje (width > height)
-    // incluso si el dispositivo está en retrato. La CameraPreview lo rota visualmente.
     final cameraPreviewSize = _controller!.value.previewSize!;
 
-    // Las dimensiones que usaremos para el SizedBox dentro de FittedBox
-    // para que CameraPreview se muestre correctamente en retrato.
-    // Invertimos porque previewSize a menudo es landscape y CameraPreview se rota.
+    // Invertir width y height si la orientación de la cámara es vertical para hacer un ajuste correcto
+    // Esto es común con CameraController
     final double cameraPreviewDisplayWidth = cameraPreviewSize.height;
     final double cameraPreviewDisplayHeight = cameraPreviewSize.width;
 
-
     return Scaffold(
+      appBar: AppBar(
+        title: const Text('Detección en Vivo'),
+        backgroundColor: Colors.transparent, // Fondo transparente para que se vea la cámara
+        elevation: 0, // Sin sombra
+      ),
+      extendBodyBehindAppBar: true, // Extender el cuerpo detrás del AppBar
       body: Stack(
         children: [
-          // Vista previa de la cámara (se ajustará para cubrir el espacio)
           SizedBox(
             width: screenWidth,
             height: screenHeight,
             child: FittedBox(
-              fit: BoxFit.cover, // Para asegurar que la vista previa cubra todo el espacio
+              fit: BoxFit.cover,
               child: SizedBox(
                 width: cameraPreviewDisplayWidth,
                 height: cameraPreviewDisplayHeight,
@@ -247,38 +271,53 @@ class _CameraScreenState extends State<CameraScreen> {
               ),
             ),
           ),
-          // Capa para dibujar las bounding boxes
           Positioned.fill(
-            child: LayoutBuilder( // Usamos LayoutBuilder para obtener las dimensiones reales de la capa de dibujo
+            child: LayoutBuilder(
               builder: (context, constraints) {
-                // Estas son las dimensiones del lienzo donde dibujaremos las cajas
                 final renderWidth = constraints.maxWidth;
                 final renderHeight = constraints.maxHeight;
 
-                // Importante: originalImageWidth/Height deben ser las dimensiones
-                // DE LA IMAGEN TAL COMO LA VE EL PAINTER, que debe ser
-                // como la ve la CameraPreview visualmente.
-                // Si previewSize es (1280, 720) y la app está en retrato,
-                // la CameraPreview lo muestra como (720, 1280) visualmente.
-                // Por lo tanto, usamos cameraPreviewDisplayHeight/Width aquí.
                 return CustomPaint(
                   painter: BoundingBoxPainter(
                     _boundingBoxes,
-                    cameraPreviewDisplayHeight, // Altura visual de la vista previa de la cámara
-                    cameraPreviewDisplayWidth,  // Ancho visual de la vista previa de la cámara
-                    renderWidth,        // Ancho real donde se dibujan las cajas
-                    renderHeight,       // Alto real donde se dibujan las cajas
+                    cameraPreviewDisplayHeight,
+                    cameraPreviewDisplayWidth,
+                    renderWidth,
+                    renderHeight,
                     context,
                   ),
                 );
               },
             ),
           ),
-
-          // Barra lateral
           Align(
             alignment: Alignment.centerRight,
             child: _sideBar,
+          ),
+          // Botón de guardar reporte
+          Positioned(
+            bottom: 30,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: ElevatedButton.icon(
+                onPressed: _saveReport,
+                icon: const Icon(Icons.save, size: 28),
+                label: const Text(
+                  'Guardar Reporte',
+                  style: TextStyle(fontSize: 18),
+                ),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(30),
+                  ),
+                  backgroundColor: Colors.blueAccent.withOpacity(0.8), // Color más visible
+                  foregroundColor: Colors.white,
+                  elevation: 5,
+                ),
+              ),
+            ),
           ),
         ],
       ),
@@ -286,13 +325,13 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 }
 
-// Clase para dibujar las bounding boxes
+// Clase para dibujar las bounding boxes (sin cambios, solo se incluye para que sea un código completo)
 class BoundingBoxPainter extends CustomPainter {
   final List<Map<String, dynamic>> detections;
-  final double originalImageRenderHeight; // Altura de la imagen tal como se muestra en la vista previa
-  final double originalImageRenderWidth;  // Ancho de la imagen tal como se muestra en la vista previa
-  final double renderWidth;               // Ancho del lienzo del CustomPaint
-  final double renderHeight;              // Alto del lienzo del CustomPaint
+  final double originalImageRenderHeight;
+  final double originalImageRenderWidth;
+  final double renderWidth;
+  final double renderHeight;
   final BuildContext context;
 
   BoundingBoxPainter(
@@ -307,37 +346,31 @@ class BoundingBoxPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.green // Color de la caja (mantengo tu color)
+      ..color = Colors.green
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.0;
 
     final textStyle = TextStyle(
-      color: Colors.blue, // Color del texto (mantengo tu color)
+      color: Colors.blue,
       fontSize: 16.0,
       fontWeight: FontWeight.bold,
-      backgroundColor: Colors.white70, // Para que el texto sea más legible (mantengo tu color)
+      backgroundColor: Colors.white70,
     );
 
     for (var detection in detections) {
-      // Las coordenadas de detección (top, left, bottom, right) ya están normalizadas (0-1)
-      // por el modelo. Ahora necesitamos escalarlas a las dimensiones del lienzo del CustomPaint.
       final double normalizedLeft = detection['left'] as double;
       final double normalizedTop = detection['top'] as double;
       final double normalizedRight = detection['right'] as double;
       final double normalizedBottom = detection['bottom'] as double;
       final String label = detection['label'];
 
-      // Escalar las coordenadas normalizadas (0-1) a las dimensiones de renderizado del CustomPaint.
-      // Ya no se requiere la doble escalada.
       final double actualLeft = normalizedLeft * renderWidth;
       final double actualTop = normalizedTop * renderHeight;
       final double actualRight = normalizedRight * renderWidth;
       final double actualBottom = normalizedBottom * renderHeight;
 
-      // Dibujar el rectángulo
       canvas.drawRect(Rect.fromLTRB(actualLeft, actualTop, actualRight, actualBottom), paint);
 
-      // Dibujar el texto de la etiqueta
       final textSpan = TextSpan(
         text: label,
         style: textStyle,
@@ -350,14 +383,12 @@ class BoundingBoxPainter extends CustomPainter {
         minWidth: 0,
         maxWidth: renderWidth,
       );
-      // Posicionar el texto encima de la caja
       textPainter.paint(canvas, Offset(actualLeft, actualTop - textPainter.height - 5));
     }
   }
 
   @override
   bool shouldRepaint(covariant BoundingBoxPainter oldDelegate) {
-    // Repintar solo si las detecciones han cambiado, o las dimensiones han cambiado.
     return oldDelegate.detections != detections ||
         oldDelegate.originalImageRenderHeight != originalImageRenderHeight ||
         oldDelegate.originalImageRenderWidth != originalImageRenderWidth ||

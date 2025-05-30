@@ -1,20 +1,28 @@
+// lib/object_detector.dart
 import 'package:flutter/services.dart';
 import 'package:tflite_flutter/tflite_flutter.dart';
-import 'package:image/image.dart' as img; // Importar el paquete 'image'
-import 'dart:typed_data'; // Importar para Uint8List si es necesario, aunque con List<List<...>> no lo es directamente
-import 'dart:math'; // Para la función sqrt y pow en el tracking
+import 'package:image/image.dart' as img;
+import 'dart:typed_data';
+import 'dart:math';
 
 class ObjectDetector {
-  late Interpreter _interpreter;
+  Interpreter? _interpreter; // Hacerlo nullable
   late List<String> _labels;
-  final int inputSize; 
+  final int inputSize;
+  bool _isModelLoaded = false; // Nuevo flag
 
   List<Map<String, dynamic>> _detectedVehicles = [];
   static const double _trackingThreshold = 100.0;
 
   ObjectDetector(this.inputSize);
 
+  bool get isModelLoaded => _isModelLoaded; // Getter para el flag
+
   Future<void> loadModel() async {
+    if (_isModelLoaded) {
+      print("Model already loaded.");
+      return;
+    }
     try {
       final interpreterOptions = InterpreterOptions();
       try {
@@ -29,33 +37,31 @@ class ObjectDetector {
         'assets/tflite/ssd_mobilenet.tflite',
         options: interpreterOptions,
       );
+      _isModelLoaded = true; // Establece el flag a true al cargar exitosamente
       print('Model loaded successfully');
 
-      // IMPRIMIR INFORMACIÓN DEL TENSO DE ENTRADA DEL MODELO
-      // Esto te ayudará a confirmar el tipo de dato y la forma esperada
-      final inputTensorInfo = _interpreter.getInputTensor(0);
-      print('Input Tensor Type: ${inputTensorInfo.type}'); // ¡Esto debería decir TensorType.uint8!
-      print('Input Tensor Shape: ${inputTensorInfo.shape}'); // Debería ser [1, 300, 300, 3]
-
+      final inputTensorInfo = _interpreter!.getInputTensor(0);
+      print('Input Tensor Type: ${inputTensorInfo.type}');
+      print('Input Tensor Shape: ${inputTensorInfo.shape}');
 
       final labelData = await rootBundle.loadString('assets/tflite/labelmap.txt');
       _labels = labelData.split('\n').where((s) => s.isNotEmpty).toList();
       print('Labels loaded: $_labels');
     } catch (e) {
       print('Error loading model or labels: $e');
+      _isModelLoaded = false; // Asegura que el flag esté en false si falla la carga
     }
   }
 
   Future<void> recognizeImage(img.Image resizedInputImage) async {
-    if (_interpreter == null) {
-      print("Error: Modelo no cargado. Llama loadModel() primero.");
+    if (_interpreter == null || !_isModelLoaded) {
+      // Solo intenta reconocer si el intérprete existe y el modelo está cargado
+      print("Error: Modelo no cargado o no disponible para reconocimiento.");
       return;
     }
 
-    // ¡Aquí llamamos a la función que produce enteros (uint8)!
-    final inputTensor = _imageToUint8_4DTensor(resizedInputImage); 
+    final inputBytes = _imageToByteListUint8(resizedInputImage, inputSize);
 
-    // Definir las salidas del modelo. Estas formas son comunes para SSD MobileNet.
     var outputBoxes = List.filled(1 * 10 * 4, 0.0).reshape([1, 10, 4]);
     var outputClasses = List.filled(1 * 10, 0.0).reshape([1, 10]);
     var outputScores = List.filled(1 * 10, 0.0).reshape([1, 10]);
@@ -69,7 +75,7 @@ class ObjectDetector {
     };
 
     try {
-      _interpreter.runForMultipleInputs([inputTensor], outputs);
+      _interpreter!.runForMultipleInputs([inputBytes], outputs);
 
       _detectedVehicles.clear();
       List<Map<String, dynamic>> tempDetectedVehicles = [];
@@ -81,15 +87,18 @@ class ObjectDetector {
         final classIndex = outputClasses[0][i].toInt();
         final box = outputBoxes[0][i];
 
-        if (score > 0.5) {
+        if (score > 0.5) { // Umbral de confianza
           double top = box[0] as double;
           double left = box[1] as double;
           double bottom = box[2] as double;
           double right = box[3] as double;
 
-          if ([2, 3, 5, 7].contains(classIndex)) {
+          // Clases de vehículos que te interesan (revisa tu labelmap.txt)
+          // 2: car, 3: motorcycle, 5: bus, 7: truck
+          if ([2, 3, 5, 7].contains(classIndex) && classIndex < _labels.length) {
             bool isNewVehicle = true;
-            
+
+            // Escalar coordenadas para el cálculo de distancia
             double scaledLeft = left * inputSize;
             double scaledTop = top * inputSize;
             double scaledRight = right * inputSize;
@@ -98,6 +107,7 @@ class ObjectDetector {
             double newCenterX = scaledLeft + (scaledRight - scaledLeft) / 2;
             double newCenterY = scaledTop + (scaledBottom - scaledTop) / 2;
 
+            // Simple seguimiento para evitar conteos duplicados si el vehículo está quieto
             for (var existingBox in _detectedVehicles) {
               double existingScaledLeft = existingBox['left'] * inputSize;
               double existingScaledTop = existingBox['top'] * inputSize;
@@ -132,37 +142,32 @@ class ObjectDetector {
       _detectedVehicles = tempDetectedVehicles;
     } catch (e) {
       print("Error running interpreter: $e");
+      // Considerar un restablecimiento o un mensaje de error aquí
     }
   }
 
-  // FUNCIÓN CORREGIDA para producir List<List<List<List<int>>>> (que es uint8)
-  List<List<List<List<int>>>> _imageToUint8_4DTensor(img.Image image) {
-    final int height = image.height;
-    final int width = image.width;
-
-    // Declara la lista con tipo `int` explícitamente
-    final List<List<List<List<int>>>> input =
-        List.generate(1, (_) => // Batch
-            List.generate(height, (_) => // Height
-                List.generate(width, (_) => // Width
-                    List.generate(3, (_) => 0)))); // Channels (RGB), inicializados a 0
-
-    for (int y = 0; y < height; y++) {
-      for (int x = 0; x < width; x++) {
-        final pixel = image.getPixel(x, y);
-        
-        // Asegúrate de que los valores sean enteros y estén en el rango 0-255
-        // `pixel.r`, `pixel.g`, `pixel.b` ya son int, pero el `.toInt()` es por robustez.
-        input[0][y][x][0] = pixel.r.toInt(); // Rojo
-        input[0][y][x][1] = pixel.g.toInt(); // Verde
-        input[0][y][x][2] = pixel.b.toInt(); // Azul
+  Uint8List _imageToByteListUint8(img.Image image, int inputSize) {
+    var convertedBytes = Uint8List(1 * inputSize * inputSize * 3);
+    var buffer = ByteData.view(convertedBytes.buffer);
+    int pixelIndex = 0;
+    for (var i = 0; i < inputSize; i++) {
+      for (var j = 0; j < inputSize; j++) {
+        var pixel = image.getPixel(j, i);
+        buffer.setUint8(pixelIndex++, pixel.r.toInt());
+        buffer.setUint8(pixelIndex++, pixel.g.toInt());
+        buffer.setUint8(pixelIndex++, pixel.b.toInt());
       }
     }
-    return input;
+    return convertedBytes;
   }
 
   void close() {
-    _interpreter.close();
+    if (_interpreter != null) {
+      _interpreter!.close();
+      _interpreter = null; // Anula el intérprete después de cerrarlo
+      _isModelLoaded = false;
+      print("Interpreter closed.");
+    }
   }
 
   List<Map<String, dynamic>> get detectedBoundingBoxes => _detectedVehicles;
