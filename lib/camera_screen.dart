@@ -1,3 +1,4 @@
+// lib/camera_screen.dart
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:image/image.dart' as img;
@@ -6,16 +7,9 @@ import 'package:permission_handler/permission_handler.dart';
 
 import 'object_detector.dart';
 import 'sidebar_widget.dart';
-import 'report_manager.dart'; // Importa el manejador de reportes
+import 'report_manager.dart';
 
-// Asegúrate de que esta variable `cameras` se inicialice en `main.dart`
-// y se pase a CameraScreen si es necesario.
-// Nota: 'cameras' está declarada como 'late List<CameraDescription> cameras;' en main.dart
-// y se inicializa antes de runApp. Flutter automáticamente la hace accesible.
-// Si esta 'cameras' en CameraScreen no está inicializada, es porque no se está
-// pasando correctamente o main.dart no la inicializó.
-// Para este ejemplo, asumimos que se inicializa globalmente o se pasa.
-// Si no, podrías pasarla como argumento al constructor de CameraScreen.
+// Definir cámaras como global para que main.dart pueda inicializarla
 List<CameraDescription> cameras = [];
 
 class CameraScreen extends StatefulWidget {
@@ -30,10 +24,9 @@ class _CameraScreenState extends State<CameraScreen> {
   ObjectDetector? _objectDetector;
   final SideBarWidget _sideBar = SideBarWidget(key: SideBarWidget.sideBarKey);
 
-  bool _isDetecting = false;
+  bool _isDetecting = false; // Flag para controlar si ya estamos detectando una imagen
   List<Map<String, dynamic>> _boundingBoxes = [];
 
-  // Datos actuales para el reporte
   int _currentCarCount = 0;
   int _currentMotorcycleCount = 0;
   int _currentBusCount = 0;
@@ -50,7 +43,7 @@ class _CameraScreenState extends State<CameraScreen> {
     if (await Permission.camera.request().isGranted) {
       _initializeCamera();
       _objectDetector = ObjectDetector(300);
-      await _objectDetector!.loadModel();
+      await _objectDetector!.loadModel(); // Carga el modelo aquí
     } else {
       print("Permiso de cámara denegado.");
       ScaffoldMessenger.of(context).showSnackBar(
@@ -60,30 +53,38 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _initializeCamera() async {
-    // Accede a la variable `cameras` globalmente desde main.dart si está inicializada
-    // O podrías pasarla a CameraScreen si la inicializas solo en main.dart
     if (cameras.isEmpty) {
-      cameras = await availableCameras(); // Intentar obtenerlas de nuevo si están vacías aquí
+      // Intenta obtener las cámaras si aún no están inicializadas
+      try {
+        cameras = await availableCameras();
+      } on CameraException catch (e) {
+        print('Error getting available cameras: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al obtener cámaras: ${e.description}')),
+        );
+        return;
+      }
     }
 
     if (cameras.isNotEmpty) {
       _controller = CameraController(
-        cameras[0],
-        ResolutionPreset.medium,
+        cameras[0], // Usa la primera cámara disponible
+        ResolutionPreset.medium, // Resolución media para mejor rendimiento
         enableAudio: false,
-        imageFormatGroup: ImageFormatGroup.yuv420,
+        imageFormatGroup: ImageFormatGroup.yuv420, // Formato YUV420 para procesamiento de imágenes
       );
 
       _controller!.initialize().then((_) {
         if (!mounted) {
           return;
         }
-        setState(() {});
+        setState(() {}); // Reconstruye el widget cuando la cámara esté lista
 
+        // Inicia el stream de imágenes de la cámara
         _controller!.startImageStream((CameraImage image) {
-          if (!_isDetecting) {
-            _isDetecting = true;
-            _processCameraImage(image);
+          if (!_isDetecting) { // Si no estamos ya procesando una imagen
+            _isDetecting = true; // Establece el flag a true
+            _processCameraImage(image); // Procesa la imagen
           }
         });
       }).catchError((Object e) {
@@ -111,6 +112,12 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   Future<void> _processCameraImage(CameraImage cameraImage) async {
+    if (_objectDetector == null || !_objectDetector!.isModelLoaded) {
+      // Evita procesar si el modelo no está listo
+      _isDetecting = false;
+      return;
+    }
+
     img.Image? originalImage = _convertYUV420toImage(cameraImage);
     if (originalImage == null) {
       _isDetecting = false;
@@ -127,10 +134,11 @@ class _CameraScreenState extends State<CameraScreen> {
       _boundingBoxes = detectedBoxes;
     });
 
+    // Asegúrate de que el SideBarWidget se actualice en el siguiente frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final sideBarState = SideBarWidget.sideBarKey.currentState;
       if (sideBarState != null) {
-        sideBarState.resetCounters();
+        sideBarState.resetCounters(); // Reinicia contadores para esta nueva detección
         _currentCarCount = 0;
         _currentMotorcycleCount = 0;
         _currentBusCount = 0;
@@ -138,29 +146,28 @@ class _CameraScreenState extends State<CameraScreen> {
 
         for (var box in detectedBoxes) {
           final classValue = box['classIndex'] as int;
-          if (classValue == 2) {
+          if (classValue == 2) { // Carro
             sideBarState.incrementCarCount();
             _currentCarCount++;
-          } else if (classValue == 3) {
+          } else if (classValue == 3) { // Moto
             sideBarState.incrementMotorcycleCount();
             _currentMotorcycleCount++;
-          } else if (classValue == 5) {
+          } else if (classValue == 5) { // Bus
             sideBarState.incrementBusCount();
             _currentBusCount++;
-          } else if (classValue == 7) {
+          } else if (classValue == 7) { // Camión
             sideBarState.incrementTruckCount();
             _currentTruckCount++;
           }
         }
-        sideBarState.updateEstimatedTime();
-        _currentEstimatedTime = sideBarState.getEstimatedTime(); // Obtener el tiempo estimado
+        sideBarState.updateEstimatedTime(); // Actualiza el tiempo estimado
+        _currentEstimatedTime = sideBarState.getEstimatedTime();
       }
     });
 
-    _isDetecting = false;
+    _isDetecting = false; // Restablece el flag para la siguiente imagen
   }
 
-  // Convierte CameraImage (YUV420_888) a img.Image (RGB)
   img.Image? _convertYUV420toImage(CameraImage image) {
     try {
       final int width = image.width;
@@ -213,7 +220,6 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 
   void _saveReport() {
-    // Asegúrate de que ReportManager esté importado y accesible
     ReportManager.addReport(
       carCount: _currentCarCount,
       motorcycleCount: _currentMotorcycleCount,
@@ -229,8 +235,9 @@ class _CameraScreenState extends State<CameraScreen> {
 
   @override
   void dispose() {
-    _controller?.dispose();
-    _objectDetector?.close();
+    _controller?.stopImageStream(); // Detén el stream de imágenes
+    _controller?.dispose(); // Libera el controlador de la cámara
+    _objectDetector?.close(); // Cierra el intérprete de TFLite
     super.dispose();
   }
 
@@ -243,22 +250,30 @@ class _CameraScreenState extends State<CameraScreen> {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
 
-    final cameraPreviewSize = _controller!.value.previewSize!;
+    // Asegúrate de que los valores sean correctos para tu orientación (portrait)
+    // Camera preview size might be swapped depending on device orientation
+    // For a portrait app, width will be the smaller dimension of the preview size
+    // and height will be the larger dimension.
+    final double cameraPreviewDisplayWidth = _controller!.value.previewSize!.height;
+    final double cameraPreviewDisplayHeight = _controller!.value.previewSize!.width;
 
-    // Invertir width y height si la orientación de la cámara es vertical para hacer un ajuste correcto
-    // Esto es común con CameraController
-    final double cameraPreviewDisplayWidth = cameraPreviewSize.height;
-    final double cameraPreviewDisplayHeight = cameraPreviewSize.width;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Detección en Vivo'),
-        backgroundColor: Colors.transparent, // Fondo transparente para que se vea la cámara
+        backgroundColor: Colors.transparent, // Fondo transparente para ver la cámara
         elevation: 0, // Sin sombra
+        leading: IconButton( // Botón de volver al inicio
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () {
+            Navigator.pop(context); // Vuelve a la pantalla anterior (HomeScreen)
+          },
+        ),
       ),
-      extendBodyBehindAppBar: true, // Extender el cuerpo detrás del AppBar
+      extendBodyBehindAppBar: true, // Extiende el body detrás de la AppBar
       body: Stack(
         children: [
+          // Vista previa de la cámara
           SizedBox(
             width: screenWidth,
             height: screenHeight,
@@ -271,6 +286,7 @@ class _CameraScreenState extends State<CameraScreen> {
               ),
             ),
           ),
+          // Bounding boxes para las detecciones
           Positioned.fill(
             child: LayoutBuilder(
               builder: (context, constraints) {
@@ -280,21 +296,22 @@ class _CameraScreenState extends State<CameraScreen> {
                 return CustomPaint(
                   painter: BoundingBoxPainter(
                     _boundingBoxes,
-                    cameraPreviewDisplayHeight,
-                    cameraPreviewDisplayWidth,
-                    renderWidth,
-                    renderHeight,
+                    cameraPreviewDisplayHeight, // Altura real de la imagen de la cámara
+                    cameraPreviewDisplayWidth,  // Ancho real de la imagen de la cámara
+                    renderWidth,                // Ancho del widget de renderizado
+                    renderHeight,               // Altura del widget de renderizado
                     context,
                   ),
                 );
               },
             ),
           ),
+          // Sidebar
           Align(
             alignment: Alignment.centerRight,
             child: _sideBar,
           ),
-          // Botón de guardar reporte
+          // Botón Guardar Reporte
           Positioned(
             bottom: 30,
             left: 0,
@@ -312,7 +329,7 @@ class _CameraScreenState extends State<CameraScreen> {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(30),
                   ),
-                  backgroundColor: Colors.blueAccent.withOpacity(0.8), // Color más visible
+                  backgroundColor: Colors.blueAccent.withOpacity(0.8),
                   foregroundColor: Colors.white,
                   elevation: 5,
                 ),
@@ -325,7 +342,7 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 }
 
-// Clase para dibujar las bounding boxes (sin cambios, solo se incluye para que sea un código completo)
+// BoundingBoxPainter (sin cambios)
 class BoundingBoxPainter extends CustomPainter {
   final List<Map<String, dynamic>> detections;
   final double originalImageRenderHeight;
@@ -364,6 +381,7 @@ class BoundingBoxPainter extends CustomPainter {
       final double normalizedBottom = detection['bottom'] as double;
       final String label = detection['label'];
 
+      // Escalar las coordenadas normalizadas al tamaño de renderizado
       final double actualLeft = normalizedLeft * renderWidth;
       final double actualTop = normalizedTop * renderHeight;
       final double actualRight = normalizedRight * renderWidth;
@@ -383,6 +401,7 @@ class BoundingBoxPainter extends CustomPainter {
         minWidth: 0,
         maxWidth: renderWidth,
       );
+      // Posicionar el texto encima del bounding box
       textPainter.paint(canvas, Offset(actualLeft, actualTop - textPainter.height - 5));
     }
   }
