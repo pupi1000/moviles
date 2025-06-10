@@ -88,7 +88,7 @@ class ObjectDetector {
       List<Map<String, dynamic>> tempDetectedVehicles = []; // Lista temporal para nuevas detecciones
 
       int count = numDetections[0].toInt(); // Obtiene el número real de detecciones
-      print('ObjectDetector: Detectadas $count detecciones en total.');
+      // print('ObjectDetector: Detectadas $count detecciones en total.'); // Ya se imprime en CameraScreen
 
       // Itera sobre las detecciones obtenidas
       for (int i = 0; i < count; i++) {
@@ -96,26 +96,17 @@ class ObjectDetector {
         final classIndex = outputClasses[0][i].toInt();
         final box = outputBoxes[0][i];
 
-        // Filtra las detecciones por un umbral de confianza (ej. 0.5 o 50%)
-        if (score > 0.5) { // Umbral de confianza mínimo para considerar una detección válida
-          // Extrae las coordenadas normalizadas de la caja delimitadora
-          double top = box[0] as double;
-          double left = box[1] as double;
-          double bottom = box[2] as double;
-          double right = box[3] as double;
+        // **AJUSTE DE SENSIBILIDAD**: Umbral de confianza mínimo para considerar una detección válida
+        if (score > 0.5) { // Volvemos a 0.5 para menos falsos positivos.
+          // Extrae las coordenadas normalizadas de la caja delimitadora (ymin, xmin, ymax, xmax)
+          double ymin = box[0] as double;
+          double xmin = box[1] as double;
+          double ymax = box[2] as double;
+          double xmax = box[3] as double;
 
-          // **IMPORTANTE**: La transformación de coordenadas de [ymin, xmin, ymax, xmax]
-          // a un formato que el `BoundingBoxPainter` pueda usar correctamente después de la rotación
-          // de la imagen de la cámara. Si la cámara rota la imagen 90/270 grados,
-          // las coordenadas de la caja deben ajustarse.
-          // Basado en experiencias anteriores, esta transformación suele ser necesaria
-          // si el modelo fue entrenado en una orientación y la cámara produce otra.
-          // Aquí asumimos que se necesita una rotación de 90 grados para alinear
-          // las coordenadas del modelo con la vista del pintor.
-          double newLeft = top;
-          double newTop = 1 - right;
-          double newRight = bottom;
-          double newBottom = 1 - left;
+          // No se aplican transformaciones de rotación aquí.
+          // Las coordenadas (ymin, xmin, ymax, xmax) se pasan directamente.
+          // El BoundingBoxPainter se encargará de la rotación y escalado para el renderizado.
 
           // Solo considera las clases de vehículos de interés (car, motorcycle, bus, truck)
           // y asegura que el índice de clase sea válido dentro de las etiquetas cargadas.
@@ -123,26 +114,26 @@ class ObjectDetector {
           // en el labelmap.txt estándar de COCO (que ssd_mobilenet suele usar).
           if ([2, 3, 5, 7].contains(classIndex) && classIndex < _labels.length) {
             final detectedLabel = _labels[classIndex];
-            print('ObjectDetector: Detectado: $detectedLabel con confianza: ${score.toStringAsFixed(2)}');
+            print('ObjectDetector: DETECTADO VEHÍCULO: $detectedLabel con confianza: ${score.toStringAsFixed(2)}');
 
             bool isNewVehicle = true; // Flag para determinar si es un vehículo nuevo o ya detectado
 
             // Escala las coordenadas de la caja al tamaño de entrada del modelo para calcular el centro
             // Esto es para el algoritmo de seguimiento, no para dibujar en pantalla.
-            double scaledLeft = newLeft * inputSize;
-            double scaledTop = newTop * inputSize;
-            double scaledRight = newRight * inputSize;
-            double scaledBottom = newBottom * inputSize;
+            double scaledLeft = xmin * inputSize;
+            double scaledTop = ymin * inputSize;
+            double scaledRight = xmax * inputSize;
+            double scaledBottom = ymax * inputSize;
 
             double newCenterX = scaledLeft + (scaledRight - scaledLeft) / 2;
             double newCenterY = scaledTop + (scaledBottom - scaledTop) / 2;
 
             // Simple algoritmo de seguimiento para evitar contar el mismo vehículo en frames consecutivos
             for (var existingBox in _detectedVehicles) {
-              double existingScaledLeft = existingBox['left'] * inputSize;
-              double existingScaledTop = existingBox['top'] * inputSize;
-              double existingScaledRight = existingBox['right'] * inputSize;
-              double existingScaledBottom = existingBox['bottom'] * inputSize;
+              double existingScaledLeft = (existingBox['left'] as double) * inputSize;
+              double existingScaledTop = (existingBox['top'] as double) * inputSize;
+              double existingScaledRight = (existingBox['right'] as double) * inputSize;
+              double existingScaledBottom = (existingBox['bottom'] as double) * inputSize;
 
               double existingCenterX = existingScaledLeft + (existingScaledRight - existingScaledLeft) / 2;
               double existingCenterY = existingScaledTop + (existingScaledBottom - existingScaledTop) / 2;
@@ -161,10 +152,10 @@ class ObjectDetector {
                 'classIndex': classIndex,
                 'label': detectedLabel, // Etiqueta del objeto (ej. "car", "motorcycle")
                 'score': score, // Puntuación de confianza
-                'top': newTop, // Coordenadas normalizadas para el pintor
-                'left': newLeft,
-                'bottom': newBottom,
-                'right': newRight,
+                'top': ymin, // Coordenadas normalizadas (ymin)
+                'left': xmin, // Coordenadas normalizadas (xmin)
+                'bottom': ymax, // Coordenadas normalizadas (ymax)
+                'right': xmax, // Coordenadas normalizadas (xmax)
               });
             }
           }
@@ -172,7 +163,7 @@ class ObjectDetector {
       }
 
       _detectedVehicles = tempDetectedVehicles; // Actualiza la lista final de vehículos detectados
-      print('ObjectDetector: Vehículos únicos detectados en este frame: ${_detectedVehicles.length}');
+      print('ObjectDetector: Vehículos únicos detectados en este frame (después de filtrado y seguimiento): ${_detectedVehicles.length}');
     } catch (e) {
       print("ObjectDetector: ERROR al ejecutar el intérprete o procesar salidas: $e");
     }

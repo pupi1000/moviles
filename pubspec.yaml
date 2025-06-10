@@ -28,10 +28,13 @@ flutter:
   uses-material-design: true
   assets:
     - assets/tflite/ssd_mobilenet.tflite
-    - assets/tflite/labelmap.txt
-    - assets/tflite/detect.tflite
-    - assets/tflite/labelmap.txt
-    # Asegúrate de que este archivo exista si no lo has quitado
+    - assets/tflite/labelmap.txt 
+    - assets/tflite/lpr/labelmap.txt   # Labelmap para ssd_mobilenet (general)
+    - assets/tflite/lpr/detect.tflite
+     # <--- AHORA REFERENCIA labelmap.txt
+    # Si tienes el modelo OCR y sus etiquetas, descomenta estas líneas:
+    # - assets/tflite/lpr/license_plate_ocr.tflite
+    # - assets/tflite/lpr/labelmap_ocr.txt
     - assets/images/bus.png
     - assets/images/car.png
     - assets/images/motorcycle.png

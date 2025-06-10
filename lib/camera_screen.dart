@@ -41,22 +41,36 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
 
   Future<void> _requestPermissions() async {
     // Solicita permiso de cámara
+    print("CameraScreen: Solicitando permiso de cámara...");
     if (await Permission.camera.request().isGranted) {
       print("CameraScreen: Permiso de cámara concedido.");
       await _initializeCamera(); // Inicializa la cámara si el permiso es concedido
 
       // Inicializa y carga el modelo de detección de objetos general
       _objectDetector = ObjectDetector(300);
+      print("CameraScreen: Intentando cargar modelo de detección de vehículos...");
       await _objectDetector!.loadModel(); // Carga el modelo de vehículos
+      if (_objectDetector!.isModelLoaded) {
+        print("CameraScreen: Modelo de detección de vehículos cargado exitosamente.");
+      } else {
+        print("CameraScreen: ERROR: Modelo de detección de vehículos NO SE PUDO CARGAR.");
+      }
 
       // Inicializa y carga los modelos del detector de matrículas
       _licensePlateRecognizer = LicensePlateRecognizer(
         plateDetectorInputSize: 300, // Ajusta este tamaño al de tu modelo de detección de placa
         ocrInputSize: 60, // Ajusta este tamaño al de tu modelo OCR
       );
-      // Solo intenta cargar los modelos LPR si la instancia no es nula.
+      print("CameraScreen: Intentando cargar modelos de detección de placas y OCR...");
       if (_licensePlateRecognizer != null) {
          await _licensePlateRecognizer!.loadModels(); // Carga ambos modelos LPR/OCR (si existen)
+         if (_licensePlateRecognizer!.isModelsLoaded) {
+           print("CameraScreen: Modelos de detección de placas (y OCR si existe) cargados exitosamente.");
+         } else {
+           print("CameraScreen: Advertencia: Modelos de detección de placas y/o OCR NO SE PUDIERON CARGAR COMPLETAMENTE.");
+         }
+      } else {
+        print("CameraScreen: Error: _licensePlateRecognizer es nulo, no se pueden cargar los modelos.");
       }
 
     } else {
@@ -71,10 +85,12 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
   }
 
   Future<void> _initializeCamera() async {
+    print("CameraScreen: Inicializando cámara...");
     // Obtiene las cámaras disponibles
     if (cameras.isEmpty) {
       try {
         cameras = await availableCameras();
+        print("CameraScreen: Cámaras disponibles encontradas: ${cameras.length}");
       } on CameraException catch (e) {
         print('CameraScreen: Error al obtener cámaras disponibles: $e');
         if (mounted) {
@@ -95,7 +111,18 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
         imageFormatGroup: ImageFormatGroup.yuv420, // Formato de imagen para el procesamiento
       );
 
-      await _controller!.initialize(); // Inicializa el controlador de la cámara
+      try {
+        await _controller!.initialize(); // Inicializa el controlador de la cámara
+        print("CameraScreen: Controlador de cámara inicializado.");
+      } on CameraException catch (e) {
+        print('CameraScreen: Error al inicializar controlador de cámara: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error al inicializar cámara: ${e.description}')),
+          );
+        }
+        return;
+      }
 
       if (!mounted) return; // Si el widget ya no está montado, retorna
 
@@ -124,7 +151,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
     // Verifica si el detector de objetos general está cargado.
     // Si no lo está, no tiene sentido continuar con la detección de vehículos.
     if (_objectDetector == null || !_objectDetector!.isModelLoaded) {
-      print("CameraScreen: Detector de objetos general no cargado. Saltando procesamiento de imagen.");
+      print("CameraScreen: Detector de objetos general NO CARGADO. Saltando procesamiento de imagen.");
       _isDetecting = false;
       return;
     }
@@ -141,6 +168,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
     int sensorOrientation = _controller?.description.sensorOrientation ?? 0;
 
     // Rota la imagen original para que el detector de objetos la procese correctamente
+    // Esta rotación asegura que la imagen de entrada al modelo tenga una orientación consistente.
     if (sensorOrientation == 90) {
       originalImage = img.copyRotate(originalImage, angle: 90);
     } else if (sensorOrientation == 270) {
@@ -150,10 +178,12 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
     }
 
     // Paso 1: Detección de vehículos con tu modelo existente (ssd_mobilenet.tflite)
-    // Redimensiona la imagen para que coincida con el tamaño de entrada del modelo.
+    // Redimensiona la imagen para que coincida con el tamaño de entrada del modelo (300x300).
     img.Image resizedForVehicleDetector = img.copyResize(originalImage, width: 300, height: 300);
     await _objectDetector!.recognizeImage(resizedForVehicleDetector); // Ejecuta la detección
     final detectedVehicleBoxes = _objectDetector!.detectedBoundingBoxes; // Obtiene los resultados
+    print("CameraScreen: Detecciones de vehículos del ObjectDetector: ${detectedVehicleBoxes.length}");
+
 
     List<Map<String, dynamic>> allBoundingBoxes = []; // Lista para almacenar todas las cajas a dibujar (vehículos y placas)
 
@@ -166,6 +196,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
     // Procesa las detecciones de vehículos
     for (var vehicleBox in detectedVehicleBoxes) {
       // Añade la caja del vehículo a la lista general para dibujar
+      // Las coordenadas ya vienen normalizadas (0-1) y serán manejadas por BoundingBoxPainter.
       allBoundingBoxes.add(vehicleBox);
 
       // Actualiza los contadores de vehículos según la clase detectada
@@ -179,14 +210,21 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
       } else if (classValue == 7) { // Índice 7 para 'truck'
         _currentTruckCount++;
       }
+      print("CameraScreen: Contadores: Carros: $_currentCarCount, Motos: $_currentMotorcycleCount, Buses: $_currentBusCount, Camiones: $_currentTruckCount");
+
 
       // Paso 2: Recortar la región del vehículo para pasarla al detector de placas
-      // Las coordenadas en 'vehicleBox' son normalizadas (0-1) y relativas a la imagen de entrada del modelo (300x300).
-      // Necesitamos escalarlas a la imagen original de la cámara para realizar el recorte preciso.
-      int vehicleLeft = (vehicleBox['left'] * originalImage.width).toInt();
-      int vehicleTop = (vehicleBox['top'] * originalImage.height).toInt();
-      int vehicleRight = (vehicleBox['right'] * originalImage.width).toInt();
-      int vehicleBottom = (vehicleBox['bottom'] * originalImage.height).toInt();
+      // Las coordenadas en 'vehicleBox' son normalizadas (0-1) y relativas a la imagen DE ENTRADA DEL MODELO (300x300).
+      // Para recortar de la 'originalImage', necesitamos escalarlas a los píxeles de 'originalImage'.
+      double normalizedLeft = vehicleBox['left'] as double;
+      double normalizedTop = vehicleBox['top'] as double;
+      double normalizedRight = vehicleBox['right'] as double;
+      double normalizedBottom = vehicleBox['bottom'] as double;
+
+      int vehicleLeft = (normalizedLeft * originalImage.width).toInt();
+      int vehicleTop = (normalizedTop * originalImage.height).toInt();
+      int vehicleRight = (normalizedRight * originalImage.width).toInt();
+      int vehicleBottom = (normalizedBottom * originalImage.height).toInt();
 
       // Asegurar que las coordenadas estén dentro de los límites de la imagen original y sean positivas.
       vehicleLeft = vehicleLeft.clamp(0, originalImage.width);
@@ -210,29 +248,33 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
 
         // Paso 3: Detectar y reconocer la matrícula dentro de la región del vehículo (si el LPR está cargado)
         if (_licensePlateRecognizer != null && _licensePlateRecognizer!.isModelsLoaded) {
+            print("CameraScreen: Intentando detectar placas en región de vehículo (recortada a ${cropWidth}x${cropHeight})...");
             final detectedPlates = await _licensePlateRecognizer!.recognizePlates(vehicleRegion);
+            print("CameraScreen: Placas detectadas por LPR en esta región: ${detectedPlates.length}");
+
 
             // Ajusta las coordenadas de la placa a la imagen original completa y las añade para dibujar.
             for (var plateBox in detectedPlates) {
               // Las coordenadas de 'plateBox' son relativas a 'vehicleRegion' (0-1).
               // Necesitamos re-escalarlas y ajustarlas a la posición original en la imagen completa de la cámara.
-              double plateLeft = (plateBox['left'] * cropWidth) + vehicleLeft;
-              double plateTop = (plateBox['top'] * cropHeight) + vehicleTop;
-              double plateRight = (plateBox['right'] * cropWidth) + vehicleLeft;
-              double plateBottom = (plateBox['bottom'] * cropHeight) + vehicleTop;
+              double plateLeftAbsolute = ((plateBox['left'] as double) * cropWidth) + vehicleLeft;
+              double plateTopAbsolute = ((plateBox['top'] as double) * cropHeight) + vehicleTop;
+              double plateRightAbsolute = ((plateBox['right'] as double) * cropWidth) + vehicleLeft;
+              double plateBottomAbsolute = ((plateBox['bottom'] as double) * cropHeight) + vehicleTop;
 
               allBoundingBoxes.add({
                 'label': plateBox['label'], // Texto de la matrícula reconocida (o "Placa detectada")
                 'score': plateBox['score'], // Confianza de la detección de la placa
-                'left': plateLeft / originalImage.width, // Normaliza a la imagen completa
-                'top': plateTop / originalImage.height,
-                'right': plateRight / originalImage.width,
-                'bottom': plateBottom / originalImage.height,
+                'left': plateLeftAbsolute / originalImage.width, // Normaliza a la imagen completa
+                'top': plateTopAbsolute / originalImage.height, // CORREGIDO: Usar originalImage.height para normalizar verticalmente
+                'right': plateRightAbsolute / originalImage.width,
+                'bottom': plateBottomAbsolute / originalImage.height, // CORREGIDO: Usar originalImage.height para normalizar verticalmente
                 'isPlate': true, // Flag para que el pintor sepa que es una matrícula
               });
+              print("CameraScreen: Placa detectada: ${plateBox['label']} (Confianza: ${plateBox['score'].toStringAsFixed(2)})");
             }
         } else {
-          print("CameraScreen: Advertencia: Detector de placas no inicializado o sus modelos no están cargados. No se detectarán placas.");
+          print("CameraScreen: Advertencia: Detector de placas no inicializado o sus modelos NO CARGADOS. No se detectarán placas.");
         }
       }
     }
@@ -241,6 +283,8 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
     setState(() {
       _boundingBoxes = allBoundingBoxes; // Ahora incluye cajas de vehículos y placas
     });
+    print("CameraScreen: Total de cajas para dibujar: ${_boundingBoxes.length}");
+
 
     // Actualiza la barra lateral con los conteos de vehículos detectados.
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -329,6 +373,7 @@ class _CameraScreenState extends ConsumerState<CameraScreen> {
   @override
   void dispose() {
     // Asegura que el stream de la cámara se detenga y los controladores/intérpretes se cierren al salir.
+    print("CameraScreen: Disposing...");
     _controller?.stopImageStream();
     _controller?.dispose();
     _objectDetector?.close(); // Cierra el detector de objetos
@@ -480,8 +525,22 @@ class BoundingBoxPainter extends CustomPainter {
 
       // Ajusta las coordenadas de la caja según la orientación del sensor de la cámara
       // Esto es crucial para que las cajas se dibujen correctamente sin importar la rotación del dispositivo.
+      // Las coordenadas (left, top, right, bottom) que llegan aquí ya están normalizadas
+      // a la imagen original (potencialmente rotada por copyRotate en _processCameraImage).
+      // El pintor las escala a las dimensiones de renderizado finales.
       switch (sensorOrientation) {
         case 90: // Orientación de la cámara horizontal derecha
+          // Si la imagen fue rotada 90 grados por copyRotate, sus dimensiones se invirtieron.
+          // Las coordenadas normalizadas (0-1) ahora deben aplicarse con respecto a esas nuevas dimensiones.
+          // Pero aquí las detecciones ya deberían venir normalizadas en el contexto de la 'originalImage' (post-rotación para el modelo).
+          // Por lo tanto, esta parte del switch podría ser redundante si la normalización en source ya considera la rotación.
+          // La simplificación propuesta en el ObjectDetector y CameraScreen asume que
+          // las coordenadas 'top', 'left', 'bottom', 'right' YA ESTÁN EN LA ORIENTACIÓN DEL MODELO.
+          // Y el pintor se encargará de "des-rotarlas" si la orientación del sensor es diferente.
+
+          // La lógica actual aquí ES CORRECTA si las 'detections' son relativas
+          // a la IMAGEN EN SU ORIENTACIÓN DE SENSOR NATIVA, y este `switch`
+          // las adapta a la orientación de pantalla si la cámara está girada.
           actualLeft = top * renderWidth;
           actualTop = (1 - right) * renderHeight;
           actualRight = bottom * renderWidth;
@@ -499,7 +558,7 @@ class BoundingBoxPainter extends CustomPainter {
           actualRight = (1 - left) * renderWidth;
           actualBottom = (1 - top) * renderHeight;
           break;
-        default: // Orientación por defecto (portrait)
+        default: // Orientación por defecto (portrait: 0 grados)
           actualLeft = left * renderWidth;
           actualTop = top * renderHeight;
           actualRight = right * renderWidth;

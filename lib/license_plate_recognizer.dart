@@ -29,7 +29,7 @@ class LicensePlateRecognizer {
   Future<void> loadModels() async {
     // Evita recargar si ambos modelos ya están cargados.
     if (_isPlateDetectorLoaded && _isOcrLoaded) {
-      print("Modelos LPR ya cargados.");
+      print("LicensePlateRecognizer: Modelos LPR ya cargados.");
       return;
     }
 
@@ -38,22 +38,27 @@ class LicensePlateRecognizer {
 
     // --- Carga del modelo de detección de placa ---
     try {
+      print("LicensePlateRecognizer: Intentando cargar modelo de detección de placa (detect.tflite)...");
       _plateDetectorInterpreter = await Interpreter.fromAsset(
         'assets/tflite/lpr/detect.tflite', // RUTA A TU MODELO DE DETECCIÓN DE PLACA (¡VERIFICA EL NOMBRE EXACTO!)
         options: interpreterOptions,
       );
       _isPlateDetectorLoaded = true;
-      print('Modelo de detección de placa cargado exitosamente.');
+      print('LicensePlateRecognizer: Modelo de detección de placa (detect.tflite) cargado exitosamente.');
 
-      // Cargar etiquetas del modelo de detección de placa (el 'labelmap.txt' de tu repositorio)
-      _plateLabels = (await rootBundle.loadString('assets/tflite/lpr/labelmap.txt'))
+      print("LicensePlateRecognizer: Intentando cargar etiquetas de detección de placa (labelmap.txt)...");
+      // Importante: Aquí se espera un labelmap.txt simple con una etiqueta por línea.
+      // Si tu labelmap.pbtxt es el que tiene "LicensePlate", DEBES usar ese archivo
+      // y adaptar la lógica de parsing, O renombrar labelmap.pbtxt a labelmap.txt
+      // y asegurarte de que solo contenga "LicensePlate".
+      _plateLabels = (await rootBundle.loadString('assets/tflite/lpr/labelmap.txt')) // Carga labelmap.txt
           .split('\n')
           .where((s) => s.isNotEmpty)
           .toList();
-      print('Etiquetas del detector de placa cargadas: $_plateLabels');
+      print('LicensePlateRecognizer: Etiquetas del detector de placa cargadas: $_plateLabels');
 
     } catch (e) {
-      print('Error al cargar el modelo de detección de placa o sus etiquetas: $e');
+      print('LicensePlateRecognizer: ERROR al cargar el modelo de detección de placa o sus etiquetas: $e');
       _isPlateDetectorLoaded = false;
       // No retorna aquí para permitir que el OCR intente cargar, ya que es opcional para la detección de placa.
     }
@@ -62,21 +67,23 @@ class LicensePlateRecognizer {
     // Si aún no tienes un modelo OCR y sus etiquetas, este bloque fallará.
     // La aplicación seguirá funcionando para la detección de placas, pero sin reconocimiento de texto.
     try {
+      print("LicensePlateRecognizer: Intentando cargar modelo OCR (license_plate_ocr.tflite)...");
       _ocrInterpreter = await Interpreter.fromAsset(
         'assets/tflite/lpr/license_plate_ocr.tflite', // RUTA A TU MODELO OCR (¡REEMPLAZA ESTO!)
         options: interpreterOptions,
       );
-      print('Modelo OCR de placa cargado exitosamente.');
+      print('LicensePlateRecognizer: Modelo OCR de placa (license_plate_ocr.tflite) cargado exitosamente.');
 
+      print("LicensePlateRecognizer: Intentando cargar etiquetas OCR (labelmap_ocr.txt)...");
       _ocrLabels = (await rootBundle.loadString('assets/tflite/lpr/labelmap_ocr.txt')) // RUTA A LAS ETIQUETAS OCR (¡REEMPLAZA ESTO!)
           .split('\n')
           .where((s) => s.isNotEmpty)
           .toList();
-      print('Etiquetas del OCR de placa cargadas: $_ocrLabels');
+      print('LicensePlateRecognizer: Etiquetas del OCR de placa cargadas: $_ocrLabels');
       _isOcrLoaded = true; // Marca el OCR como cargado si todo fue bien.
 
     } catch (e) {
-      print('Error al cargar el modelo OCR o sus etiquetas (esto es opcional para la detección de placa): $e');
+      print('LicensePlateRecognizer: ERROR al cargar el modelo OCR o sus etiquetas (esto es opcional para la detección de placa): $e');
       _isOcrLoaded = false; // Marca el OCR como no cargado si hubo un error.
     }
   }
@@ -86,7 +93,7 @@ class LicensePlateRecognizer {
   Future<List<Map<String, dynamic>>> recognizePlates(img.Image inputImage) async {
     // Si el detector de placa no está cargado, no se puede realizar la detección.
     if (!_isPlateDetectorLoaded || _plateDetectorInterpreter == null) {
-      print("Error: El detector de placa no está cargado. No se puede detectar la matrícula.");
+      print("LicensePlateRecognizer: Error: El detector de placa no está cargado. No se puede detectar la matrícula.");
       return [];
     }
 
@@ -99,11 +106,10 @@ class LicensePlateRecognizer {
 
     // Salidas esperadas del modelo de detección de placas (ajusta esto si tu 'detect.tflite' es diferente)
     // El modelo del repositorio de GitHub suele tener 4 salidas: ubicaciones, clases, puntuaciones, número de detecciones.
-    // El orden de las salidas (0, 1, 2, 3) puede variar según cómo se exportó el modelo.
     var plateLocations = List.filled(1 * 10 * 4, 0.0).reshape([1, 10, 4]); // Bounding box locations [ymin, xmin, ymax, xmax]
     var plateClasses = List.filled(1 * 10, 0.0).reshape([1, 10]); // Class indices
     var plateScores = List.filled(1 * 10, 0.0).reshape([1, 10]); // Confidence scores
-    var plateNumDetections = List<double>.filled(1, 0.0); // Number of detections
+    var plateNumDetections = List<double>.filled(1, 0.0); // [1] (número real de detecciones)
 
     Map<int, Object> plateDetectorOutputs = {
       0: plateLocations,
@@ -117,6 +123,7 @@ class LicensePlateRecognizer {
       _plateDetectorInterpreter!.runForMultipleInputs([inputBytesPlateDetector], plateDetectorOutputs);
 
       int plateCount = plateNumDetections[0].toInt(); // Número de detecciones de placas.
+      print('LicensePlateRecognizer: Detectadas $plateCount posibles placas por el detector.');
 
       for (int i = 0; i < plateCount; i++) {
         final score = plateScores[0][i] as double; // Puntuación de confianza de la detección.
@@ -126,9 +133,13 @@ class LicensePlateRecognizer {
         // Filtra detecciones por umbral de confianza y validez de la clase.
         if (score > 0.6 && _plateLabels != null && classIndex < _plateLabels!.length) {
           // Asegúrate de que la clase detectada sea 'LicensePlate' según tu labelmap.
-          if (_plateLabels![classIndex] != 'LicensePlate') {
+          // Comprueba si el labelmap realmente tiene el valor 'LicensePlate' en el índice correcto
+          if (_plateLabels![classIndex].trim().toLowerCase() != 'licenseplate') { // .trim().toLowerCase() para robustez
+              // print('LicensePlateRecognizer: Clase detectada ${_plateLabels![classIndex]} no es "LicensePlate". Saltando.'); // Para depuración
               continue; // Si no es una matrícula, ignora esta detección.
           }
+          print('LicensePlateRecognizer: Matrícula detectada con confianza: ${score.toStringAsFixed(2)}');
+
 
           // Extrae coordenadas de la caja delimitadora.
           double ymin = box[0] as double;
@@ -150,7 +161,7 @@ class LicensePlateRecognizer {
 
           // Si la caja es inválida (ancho o alto cero/negativo), salta esta detección.
           if (plateWidth <= 0 || plateHeight <= 0) {
-              print("Advertencia: Caja de matrícula inválida (width o height <= 0). Saltando.");
+              print("LicensePlateRecognizer: Advertencia: Caja de matrícula inválida (width o height <= 0). Saltando.");
               continue;
           }
 
@@ -174,19 +185,24 @@ class LicensePlateRecognizer {
 
             // Ajusta las salidas del modelo OCR según su formato específico.
             // Esto es un PLACEHOLDER. La estructura REAL de tu modelo OCR dictará esta configuración.
-            // Por ejemplo, si es un clasificador de caracteres individuales, o un modelo CTC.
             var ocrOutput = List.filled(1 * _ocrLabels!.length, 0.0).reshape([1, _ocrLabels!.length]);
 
             Map<int, Object> ocrOutputs = {
               0: ocrOutput,
             };
 
-            _ocrInterpreter!.runForMultipleInputs([inputBytesOcr], ocrOutputs);
-
-            // POST-PROCESAMIENTO OCR: Obtener el texto de la matrícula.
-            plateText = _decodeOcrOutput(ocrOutput.cast<List<double>>());
+            try {
+              _ocrInterpreter!.runForMultipleInputs([inputBytesOcr], ocrOutputs);
+              // POST-PROCESAMIENTO OCR: Obtener el texto de la matrícula.
+              plateText = _decodeOcrOutput(ocrOutput.cast<List<double>>());
+              print("LicensePlateRecognizer: Texto OCR detectado: $plateText");
+            } catch (e) {
+              print("LicensePlateRecognizer: ERROR al ejecutar el intérprete OCR: $e");
+              plateText = "ErrorOCR";
+            }
+            
           } else {
-             print("Advertencia: Modelo OCR no cargado o no disponible. No se realizará reconocimiento de texto.");
+             print("LicensePlateRecognizer: Advertencia: Modelo OCR no cargado o no disponible. No se realizará reconocimiento de texto.");
           }
           // --- Fin de la sección OCR ---
 
@@ -204,7 +220,7 @@ class LicensePlateRecognizer {
         }
       }
     } catch (e) {
-      print("Error al ejecutar la detección de placas o OCR: $e");
+      print("LicensePlateRecognizer: Error al ejecutar la detección de placas o OCR: $e");
     }
     return detectedPlates;
   }
@@ -231,7 +247,7 @@ class LicensePlateRecognizer {
   // Debes consultar la documentación o ejemplos de tu modelo OCR para saber cómo decodificar su salida.
   String _decodeOcrOutput(List<List<double>> output) {
     if (_ocrLabels == null || _ocrLabels!.isEmpty || output.isEmpty || output[0].isEmpty) {
-      print("Advertencia: _decodeOcrOutput llamado sin _ocrLabels o output válido.");
+      print("LicensePlateRecognizer: Advertencia: _decodeOcrOutput llamado sin _ocrLabels o output válido.");
       return "";
     }
 
@@ -254,7 +270,7 @@ class LicensePlateRecognizer {
         recognizedText = _ocrLabels![maxIndex];
       }
     } catch (e) {
-      print("Error al decodificar la salida OCR: $e");
+      print("LicensePlateRecognizer: Error al decodificar la salida OCR: $e");
       recognizedText = "ErrorOCR"; // Devuelve un error para depuración
     }
     // ==============================================================================
@@ -269,6 +285,6 @@ class LicensePlateRecognizer {
     _ocrInterpreter?.close();
     _isPlateDetectorLoaded = false;
     _isOcrLoaded = false;
-    print("Modelos LPR cerrados.");
+    print("LicensePlateRecognizer: Modelos LPR cerrados.");
   }
 }
