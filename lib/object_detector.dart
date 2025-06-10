@@ -54,97 +54,99 @@ class ObjectDetector {
   }
 
   Future<void> recognizeImage(img.Image resizedInputImage) async {
-    if (_interpreter == null || !_isModelLoaded) {
-      // Solo intenta reconocer si el intérprete existe y el modelo está cargado
-      print("Error: Modelo no cargado o no disponible para reconocimiento.");
-      return;
-    }
+  if (_interpreter == null || !_isModelLoaded) {
+    print("Error: Modelo no cargado o no disponible para reconocimiento.");
+    return;
+  }
 
-    final inputBytes = _imageToByteListUint8(resizedInputImage, inputSize);
+  final inputBytes = _imageToByteListUint8(resizedInputImage, inputSize);
 
-    var outputBoxes = List.filled(1 * 10 * 4, 0.0).reshape([1, 10, 4]);
-    var outputClasses = List.filled(1 * 10, 0.0).reshape([1, 10]);
-    var outputScores = List.filled(1 * 10, 0.0).reshape([1, 10]);
-    var numDetections = List<double>.filled(1, 0.0);
+  var outputBoxes = List.filled(1 * 10 * 4, 0.0).reshape([1, 10, 4]);
+  var outputClasses = List.filled(1 * 10, 0.0).reshape([1, 10]);
+  var outputScores = List.filled(1 * 10, 0.0).reshape([1, 10]);
+  var numDetections = List<double>.filled(1, 0.0);
 
-    Map<int, Object> outputs = {
-      0: outputBoxes,
-      1: outputClasses,
-      2: outputScores,
-      3: numDetections,
-    };
+  Map<int, Object> outputs = {
+    0: outputBoxes,
+    1: outputClasses,
+    2: outputScores,
+    3: numDetections,
+  };
 
-    try {
-      _interpreter!.runForMultipleInputs([inputBytes], outputs);
+  try {
+    _interpreter!.runForMultipleInputs([inputBytes], outputs);
 
-      _detectedVehicles.clear();
-      List<Map<String, dynamic>> tempDetectedVehicles = [];
+    _detectedVehicles.clear();
+    List<Map<String, dynamic>> tempDetectedVehicles = [];
 
-      int count = numDetections[0].toInt();
+    int count = numDetections[0].toInt();
 
-      for (int i = 0; i < count; i++) {
-        final score = outputScores[0][i] as double;
-        final classIndex = outputClasses[0][i].toInt();
-        final box = outputBoxes[0][i];
+    for (int i = 0; i < count; i++) {
+      final score = outputScores[0][i] as double;
+      final classIndex = outputClasses[0][i].toInt();
+      final box = outputBoxes[0][i];
 
-        if (score > 0.5) { // Umbral de confianza
-          double top = box[0] as double;
-          double left = box[1] as double;
-          double bottom = box[2] as double;
-          double right = box[3] as double;
+      if (score > 0.5) {
+        double top = box[0] as double;
+        double left = box[1] as double;
+        double bottom = box[2] as double;
+        double right = box[3] as double;
 
-          // Clases de vehículos que te interesan (revisa tu labelmap.txt)
-          // 2: car, 3: motorcycle, 5: bus, 7: truck
-          if ([2, 3, 5, 7].contains(classIndex) && classIndex < _labels.length) {
-            bool isNewVehicle = true;
+        // TRANSFORMAR coordenadas para cámara girada 90° (landscape)
+        double newLeft = top;
+        double newTop = 1 - right;
+        double newRight = bottom;
+        double newBottom = 1 - left;
 
-            // Escalar coordenadas para el cálculo de distancia
-            double scaledLeft = left * inputSize;
-            double scaledTop = top * inputSize;
-            double scaledRight = right * inputSize;
-            double scaledBottom = bottom * inputSize;
+        if ([2, 3, 5, 7].contains(classIndex) && classIndex < _labels.length) {
+          bool isNewVehicle = true;
 
-            double newCenterX = scaledLeft + (scaledRight - scaledLeft) / 2;
-            double newCenterY = scaledTop + (scaledBottom - scaledTop) / 2;
+          double scaledLeft = newLeft * inputSize;
+          double scaledTop = newTop * inputSize;
+          double scaledRight = newRight * inputSize;
+          double scaledBottom = newBottom * inputSize;
 
-            // Simple seguimiento para evitar conteos duplicados si el vehículo está quieto
-            for (var existingBox in _detectedVehicles) {
-              double existingScaledLeft = existingBox['left'] * inputSize;
-              double existingScaledTop = existingBox['top'] * inputSize;
-              double existingScaledRight = existingBox['right'] * inputSize;
-              double existingScaledBottom = existingBox['bottom'] * inputSize;
+          double newCenterX = scaledLeft + (scaledRight - scaledLeft) / 2;
+          double newCenterY = scaledTop + (scaledBottom - scaledTop) / 2;
 
-              double existingCenterX = existingScaledLeft + (existingScaledRight - existingScaledLeft) / 2;
-              double existingCenterY = existingScaledTop + (existingScaledBottom - existingScaledTop) / 2;
+          for (var existingBox in _detectedVehicles) {
+            double existingScaledLeft = existingBox['left'] * inputSize;
+            double existingScaledTop = existingBox['top'] * inputSize;
+            double existingScaledRight = existingBox['right'] * inputSize;
+            double existingScaledBottom = existingBox['bottom'] * inputSize;
 
-              double distance = sqrt(pow(newCenterX - existingCenterX, 2) + pow(newCenterY - existingCenterY, 2));
+            double existingCenterX = existingScaledLeft + (existingScaledRight - existingScaledLeft) / 2;
+            double existingCenterY = existingScaledTop + (existingScaledBottom - existingScaledTop) / 2;
 
-              if (distance < _trackingThreshold) {
-                isNewVehicle = false;
-                break;
-              }
+            double distance = sqrt(pow(newCenterX - existingCenterX, 2) + pow(newCenterY - existingCenterY, 2));
+
+            if (distance < _trackingThreshold) {
+              isNewVehicle = false;
+              break;
             }
+          }
 
-            if (isNewVehicle) {
-              tempDetectedVehicles.add({
-                'classIndex': classIndex,
-                'label': _labels[classIndex],
-                'score': score,
-                'top': top,
-                'left': left,
-                'bottom': bottom,
-                'right': right,
-              });
-            }
+          if (isNewVehicle) {
+            tempDetectedVehicles.add({
+              'classIndex': classIndex,
+              'label': _labels[classIndex],
+              'score': score,
+              'top': newTop,
+              'left': newLeft,
+              'bottom': newBottom,
+              'right': newRight,
+            });
           }
         }
       }
-      _detectedVehicles = tempDetectedVehicles;
-    } catch (e) {
-      print("Error running interpreter: $e");
-      // Considerar un restablecimiento o un mensaje de error aquí
     }
+
+    _detectedVehicles = tempDetectedVehicles;
+  } catch (e) {
+    print("Error running interpreter: $e");
   }
+}
+
 
   Uint8List _imageToByteListUint8(img.Image image, int inputSize) {
     var convertedBytes = Uint8List(1 * inputSize * inputSize * 3);

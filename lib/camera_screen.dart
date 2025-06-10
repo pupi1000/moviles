@@ -41,79 +41,66 @@ class _CameraScreenState extends State<CameraScreen> {
 
   Future<void> _requestPermissions() async {
     if (await Permission.camera.request().isGranted) {
-      _initializeCamera();
+      await _initializeCamera();
       _objectDetector = ObjectDetector(300);
-      await _objectDetector!.loadModel(); // Carga el modelo aquí
+      await _objectDetector!.loadModel();
     } else {
       print("Permiso de cámara denegado.");
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Permiso de cámara denegado. No se puede iniciar la detección.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Permiso de cámara denegado. No se puede iniciar la detección.')),
+        );
+      }
     }
   }
 
   Future<void> _initializeCamera() async {
     if (cameras.isEmpty) {
-      // Intenta obtener las cámaras si aún no están inicializadas
       try {
         cameras = await availableCameras();
       } on CameraException catch (e) {
         print('Error getting available cameras: $e');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al obtener cámaras: ${e.description}')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error al obtener cámaras: ${e.description}')),
+          );
+        }
         return;
       }
     }
 
     if (cameras.isNotEmpty) {
       _controller = CameraController(
-        cameras[0], // Usa la primera cámara disponible
-        ResolutionPreset.medium, // Resolución media para mejor rendimiento
+        cameras[0],
+        ResolutionPreset.medium,
         enableAudio: false,
-        imageFormatGroup: ImageFormatGroup.yuv420, // Formato YUV420 para procesamiento de imágenes
+        imageFormatGroup: ImageFormatGroup.yuv420,
       );
 
-      _controller!.initialize().then((_) {
-        if (!mounted) {
-          return;
-        }
-        setState(() {}); // Reconstruye el widget cuando la cámara esté lista
+      await _controller!.initialize();
 
-        // Inicia el stream de imágenes de la cámara
-        _controller!.startImageStream((CameraImage image) {
-          if (!_isDetecting) { // Si no estamos ya procesando una imagen
-            _isDetecting = true; // Establece el flag a true
-            _processCameraImage(image); // Procesa la imagen
-          }
-        });
-      }).catchError((Object e) {
-        if (e is CameraException) {
-          print('Error initializing camera: ${e.code}');
-          String errorMessage = 'Error al iniciar la cámara: ${e.code}';
-          if (e.code == 'CameraAccessDenied') {
-            errorMessage = 'Acceso a la cámara denegado. Por favor, conceda el permiso.';
-          } else if (e.code == 'AlreadyStarted') {
-            errorMessage = 'La cámara ya está en uso.';
-          }
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(errorMessage)),
-          );
-        } else {
-          print('Error initializing camera: $e');
+      if (!mounted) return;
+
+      setState(() {});
+
+      _controller!.startImageStream((CameraImage image) {
+        if (!_isDetecting) {
+          _isDetecting = true;
+          _processCameraImage(image);
         }
       });
     } else {
       print("No se encontraron cámaras disponibles.");
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No se encontraron cámaras disponibles.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se encontraron cámaras disponibles.')),
+        );
+      }
     }
   }
 
   Future<void> _processCameraImage(CameraImage cameraImage) async {
     if (_objectDetector == null || !_objectDetector!.isModelLoaded) {
-      // Evita procesar si el modelo no está listo
       _isDetecting = false;
       return;
     }
@@ -124,6 +111,18 @@ class _CameraScreenState extends State<CameraScreen> {
       return;
     }
 
+    int sensorOrientation = _controller?.description.sensorOrientation ?? 0;
+
+    // Rota la imagen según orientación del sensor para que el modelo reciba la imagen en la orientación correcta
+    if (sensorOrientation == 90) {
+      originalImage = img.copyRotate(originalImage, angle: 90);
+    } else if (sensorOrientation == 270) {
+      originalImage = img.copyRotate(originalImage, angle: -90);
+    } else if (sensorOrientation == 180) {
+      originalImage = img.copyRotate(originalImage, angle: 180);
+    }
+
+    // Cambia tamaño a 300x300 que es el tamaño esperado por el modelo
     img.Image resizedImage = img.copyResize(originalImage, width: 300, height: 300);
 
     await _objectDetector!.recognizeImage(resizedImage);
@@ -134,11 +133,10 @@ class _CameraScreenState extends State<CameraScreen> {
       _boundingBoxes = detectedBoxes;
     });
 
-    // Asegúrate de que el SideBarWidget se actualice en el siguiente frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final sideBarState = SideBarWidget.sideBarKey.currentState;
       if (sideBarState != null) {
-        sideBarState.resetCounters(); // Reinicia contadores para esta nueva detección
+        sideBarState.resetCounters();
         _currentCarCount = 0;
         _currentMotorcycleCount = 0;
         _currentBusCount = 0;
@@ -146,26 +144,26 @@ class _CameraScreenState extends State<CameraScreen> {
 
         for (var box in detectedBoxes) {
           final classValue = box['classIndex'] as int;
-          if (classValue == 2) { // Carro
+          if (classValue == 2) {
             sideBarState.incrementCarCount();
             _currentCarCount++;
-          } else if (classValue == 3) { // Moto
+          } else if (classValue == 3) {
             sideBarState.incrementMotorcycleCount();
             _currentMotorcycleCount++;
-          } else if (classValue == 5) { // Bus
+          } else if (classValue == 5) {
             sideBarState.incrementBusCount();
             _currentBusCount++;
-          } else if (classValue == 7) { // Camión
+          } else if (classValue == 7) {
             sideBarState.incrementTruckCount();
             _currentTruckCount++;
           }
         }
-        sideBarState.updateEstimatedTime(); // Actualiza el tiempo estimado
+        sideBarState.updateEstimatedTime();
         _currentEstimatedTime = sideBarState.getEstimatedTime();
       }
     });
 
-    _isDetecting = false; // Restablece el flag para la siguiente imagen
+    _isDetecting = false;
   }
 
   img.Image? _convertYUV420toImage(CameraImage image) {
@@ -235,9 +233,9 @@ class _CameraScreenState extends State<CameraScreen> {
 
   @override
   void dispose() {
-    _controller?.stopImageStream(); // Detén el stream de imágenes
-    _controller?.dispose(); // Libera el controlador de la cámara
-    _objectDetector?.close(); // Cierra el intérprete de TFLite
+    _controller?.stopImageStream();
+    _controller?.dispose();
+    _objectDetector?.close();
     super.dispose();
   }
 
@@ -250,43 +248,27 @@ class _CameraScreenState extends State<CameraScreen> {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
 
-    // Asegúrate de que los valores sean correctos para tu orientación (portrait)
-    // Camera preview size might be swapped depending on device orientation
-    // For a portrait app, width will be the smaller dimension of the preview size
-    // and height will be the larger dimension.
-    final double cameraPreviewDisplayWidth = _controller!.value.previewSize!.height;
-    final double cameraPreviewDisplayHeight = _controller!.value.previewSize!.width;
-
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Detección en Vivo'),
-        backgroundColor: Colors.transparent, // Fondo transparente para ver la cámara
-        elevation: 0, // Sin sombra
-        leading: IconButton( // Botón de volver al inicio
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () {
-            Navigator.pop(context); // Vuelve a la pantalla anterior (HomeScreen)
-          },
+          onPressed: () => Navigator.pop(context),
         ),
       ),
-      extendBodyBehindAppBar: true, // Extiende el body detrás de la AppBar
+      extendBodyBehindAppBar: true,
       body: Stack(
         children: [
-          // Vista previa de la cámara
           SizedBox(
             width: screenWidth,
             height: screenHeight,
-            child: FittedBox(
-              fit: BoxFit.cover,
-              child: SizedBox(
-                width: cameraPreviewDisplayWidth,
-                height: cameraPreviewDisplayHeight,
-                child: CameraPreview(_controller!),
-              ),
+            child: AspectRatio(
+              aspectRatio: _controller!.value.aspectRatio,
+              child: CameraPreview(_controller!),
             ),
           ),
-          // Bounding boxes para las detecciones
           Positioned.fill(
             child: LayoutBuilder(
               builder: (context, constraints) {
@@ -296,22 +278,18 @@ class _CameraScreenState extends State<CameraScreen> {
                 return CustomPaint(
                   painter: BoundingBoxPainter(
                     _boundingBoxes,
-                    cameraPreviewDisplayHeight, // Altura real de la imagen de la cámara
-                    cameraPreviewDisplayWidth,  // Ancho real de la imagen de la cámara
-                    renderWidth,                // Ancho del widget de renderizado
-                    renderHeight,               // Altura del widget de renderizado
-                    context,
+                    renderWidth,
+                    renderHeight,
+                    _controller?.description.sensorOrientation ?? 0,
                   ),
                 );
               },
             ),
           ),
-          // Sidebar
           Align(
             alignment: Alignment.centerRight,
             child: _sideBar,
           ),
-          // Botón Guardar Reporte
           Positioned(
             bottom: 30,
             left: 0,
@@ -342,22 +320,17 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 }
 
-// BoundingBoxPainter (sin cambios)
 class BoundingBoxPainter extends CustomPainter {
   final List<Map<String, dynamic>> detections;
-  final double originalImageRenderHeight;
-  final double originalImageRenderWidth;
   final double renderWidth;
   final double renderHeight;
-  final BuildContext context;
+  final int sensorOrientation;
 
   BoundingBoxPainter(
     this.detections,
-    this.originalImageRenderHeight,
-    this.originalImageRenderWidth,
     this.renderWidth,
     this.renderHeight,
-    this.context,
+    this.sensorOrientation,
   );
 
   @override
@@ -375,43 +348,62 @@ class BoundingBoxPainter extends CustomPainter {
     );
 
     for (var detection in detections) {
-      final double normalizedLeft = detection['left'] as double;
-      final double normalizedTop = detection['top'] as double;
-      final double normalizedRight = detection['right'] as double;
-      final double normalizedBottom = detection['bottom'] as double;
+      final double left = detection['left'] as double;
+      final double top = detection['top'] as double;
+      final double right = detection['right'] as double;
+      final double bottom = detection['bottom'] as double;
       final String label = detection['label'];
 
-      // Escalar las coordenadas normalizadas al tamaño de renderizado
-      final double actualLeft = normalizedLeft * renderWidth;
-      final double actualTop = normalizedTop * renderHeight;
-      final double actualRight = normalizedRight * renderWidth;
-      final double actualBottom = normalizedBottom * renderHeight;
+      double actualLeft, actualTop, actualRight, actualBottom;
+
+      // Corrige las coordenadas según la orientación del sensor
+      switch (sensorOrientation) {
+        case 90:
+          actualLeft = top * renderWidth;
+          actualTop = (1 - right) * renderHeight;
+          actualRight = bottom * renderWidth;
+          actualBottom = (1 - left) * renderHeight;
+          break;
+        case 270:
+          actualLeft = (1 - bottom) * renderWidth;
+          actualTop = left * renderHeight;
+          actualRight = (1 - top) * renderWidth;
+          actualBottom = right * renderHeight;
+          break;
+        case 180:
+          actualLeft = (1 - right) * renderWidth;
+          actualTop = (1 - bottom) * renderHeight;
+          actualRight = (1 - left) * renderWidth;
+          actualBottom = (1 - top) * renderHeight;
+          break;
+        default:
+          actualLeft = left * renderWidth;
+          actualTop = top * renderHeight;
+          actualRight = right * renderWidth;
+          actualBottom = bottom * renderHeight;
+      }
 
       canvas.drawRect(Rect.fromLTRB(actualLeft, actualTop, actualRight, actualBottom), paint);
 
-      final textSpan = TextSpan(
-        text: label,
-        style: textStyle,
-      );
-      final textPainter = TextPainter(
-        text: textSpan,
-        textDirection: TextDirection.ltr,
-      );
-      textPainter.layout(
-        minWidth: 0,
-        maxWidth: renderWidth,
-      );
-      // Posicionar el texto encima del bounding box
-      textPainter.paint(canvas, Offset(actualLeft, actualTop - textPainter.height - 5));
+      final textSpan = TextSpan(text: label, style: textStyle);
+      final textPainter = TextPainter(text: textSpan, textDirection: TextDirection.ltr);
+      textPainter.layout(minWidth: 0, maxWidth: renderWidth);
+
+      // Ajusta la posición vertical para que no se superponga con la caja
+      double labelY = actualTop - textPainter.height - 5;
+      if (labelY < 0) {
+        labelY = actualTop + 5;
+      }
+
+      textPainter.paint(canvas, Offset(actualLeft, labelY));
     }
   }
 
   @override
   bool shouldRepaint(covariant BoundingBoxPainter oldDelegate) {
     return oldDelegate.detections != detections ||
-        oldDelegate.originalImageRenderHeight != originalImageRenderHeight ||
-        oldDelegate.originalImageRenderWidth != originalImageRenderWidth ||
         oldDelegate.renderWidth != renderWidth ||
-        oldDelegate.renderHeight != renderHeight;
+        oldDelegate.renderHeight != renderHeight ||
+        oldDelegate.sensorOrientation != sensorOrientation;
   }
 }
