@@ -1,112 +1,110 @@
-// lib/reports_screen.dart
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart'; // Necesario para formatear fechas
-import 'report_manager.dart'; // Importa el manejador de reportes
+import 'package:intl/intl.dart';
+import 'report_manager.dart';
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({Key? key}) : super(key: key);
 
   @override
-  State<ReportsScreen> createState() => _ReportsScreenState();
+  _ReportsScreenState createState() => _ReportsScreenState();
 }
 
 class _ReportsScreenState extends State<ReportsScreen> {
   @override
   Widget build(BuildContext context) {
-    // Obtiene los reportes del ReportManager. Se usa List.from para crear una copia
-    // y evitar problemas si la lista original es modificada en otro lugar.
     final List<Report> reports = List.from(ReportManager.reports);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Reportes de Detección'),
-        backgroundColor: Colors.deepPurple, // Usar el mismo color de AppBar que en main.dart
-        foregroundColor: Colors.white, // Color del texto e iconos en la AppBar
+        title: const Text(
+          'Reportes de Detección',
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: Colors.teal,
+        foregroundColor: Colors.white,
+        centerTitle: true,
       ),
       body: Container(
-        // Fondo con un gradiente suave para un diseño más agradable.
         decoration: const BoxDecoration(
           gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color.fromARGB(255, 143, 182, 211), Color.fromARGB(255, 125, 185, 213)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color.fromARGB(255, 0, 126, 255), Color.fromARGB(255, 255, 118, 87)],
           ),
         ),
         child: reports.isEmpty
             ? const Center(
-                // Mensaje cuando no hay reportes guardados.
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.info_outline, size: 80, color: Colors.grey), // Icono más grande
+                    Icon(Icons.info_outline, size: 80, color: Colors.white),
                     SizedBox(height: 20),
                     Text(
                       'Aún no hay reportes guardados.',
-                      style: TextStyle(fontSize: 22, color: Colors.blueGrey, fontWeight: FontWeight.w600),
-                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 22, color: Colors.white),
                     ),
                     SizedBox(height: 10),
                     Text(
                       'Inicia la detección desde la pantalla principal y guarda un reporte.',
-                      style: TextStyle(fontSize: 18, color: Colors.grey),
-                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 18, color: Colors.white70),
                     ),
                   ],
                 ),
               )
-            : ListView.builder(
+            : SingleChildScrollView(
                 padding: const EdgeInsets.all(16.0),
-                itemCount: reports.length,
-                itemBuilder: (context, index) {
-                  // Muestra los reportes más recientes primero.
-                  final report = reports[reports.length - 1 - index];
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 15.0),
-                    elevation: 6, // Mayor elevación para un efecto 3D
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20), // Bordes más redondeados
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(20.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Reporte del ${DateFormat('dd/MM/yyyy HH:mm').format(report.timestamp)}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 19,
-                              color: Colors.deepPurple, // Color de título del reporte
-                            ),
-                          ),
-                          const Divider(height: 20, thickness: 1.5, color: Colors.blueGrey), // Divisor más grueso
-                          // Filas de detalle del reporte con iconos y texto mejorado.
-                          _buildReportDetailRow('Carros:', report.carCount, Icons.car_rental),
-                          _buildReportDetailRow('Motos:', report.motorcycleCount, Icons.two_wheeler),
-                          _buildReportDetailRow('Buses:', report.busCount, Icons.directions_bus),
-                          _buildReportDetailRow('Camiones:', report.truckCount, Icons.local_shipping),
-                          const SizedBox(height: 20),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: Chip( // Usa un Chip para el tiempo estimado, más estético.
-                              label: Text(
-                                'Tiempo estimado de espera: ${report.estimatedTime}',
+                child: Column(
+                  children: [
+                    for (var report in reports)
+                      Card(
+                        margin: const EdgeInsets.only(bottom: 15.0),
+                        elevation: 6,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(20.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Fecha del reporte
+                              Text(
+                                'Reporte del ${DateFormat('dd/MM/yyyy HH:mm').format(report.timestamp)}',
                                 style: const TextStyle(
-                                  fontSize: 17,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                                  fontSize: 19,
+                                  color: Colors.deepPurple,
                                 ),
                               ),
-                              backgroundColor: Colors.green.shade600, // Fondo verde para el chip
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                              elevation: 3,
-                            ),
+                              const Divider(height: 20, thickness: 1.5, color: Colors.blueGrey),
+                              
+                              // Detalles de los vehículos
+                              _buildReportDetailRow('Carros:', report.carCount, Icons.car_rental),
+                              _buildReportDetailRow('Motos:', report.motorcycleCount, Icons.two_wheeler),
+                              _buildReportDetailRow('Buses:', report.busCount, Icons.directions_bus),
+                              _buildReportDetailRow('Camiones:', report.truckCount, Icons.local_shipping),
+                              
+                              const SizedBox(height: 20),
+                              
+                              // Tiempo estimado
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: Chip(
+                                  label: Text(
+                                    'Tiempo estimado de espera: ${report.estimatedTime}',
+                                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white),
+                                  ),
+                                  backgroundColor: Colors.green.shade600,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  elevation: 3,
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
                       ),
-                    ),
-                  );
-                },
+                  ],
+                ),
               ),
       ),
     );
@@ -118,7 +116,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
         children: [
-          Icon(icon, color: Colors.blueGrey, size: 22), // Icono del detalle
+          Icon(icon, color: Colors.blueGrey, size: 22),
           const SizedBox(width: 10),
           Text(
             '$label $count',

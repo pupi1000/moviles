@@ -9,6 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_riverpod: ^2.0.0
   camera: ^0.11.1 # Versión estable, si te sale error, prueba la última disponible que encuentres en pub.dev para tu versión de Flutter
   tflite_flutter: ^0.11.0 # Esta versión es compatible y estable
   image: ^4.1.7 # Esta versión es compatible
@@ -26,6 +27,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/tflite/ssd_mobilenet.tflite
+    - assets/tflite/embedding_model.pkl
     - assets/tflite/labelmap.txt
     - assets/images/bus.png
     - assets/images/car.png

@@ -1,25 +1,27 @@
-// lib/camera_screen.dart
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:image/image.dart' as img;
 import 'dart:typed_data';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';  // Importar Riverpod
 
 import 'object_detector.dart';
 import 'sidebar_widget.dart';
 import 'report_manager.dart';
+import 'reports_screen.dart';
+import 'vehicle_count_provider.dart';  // Importar el provider de Riverpod
 
 // Definir cámaras como global para que main.dart pueda inicializarla
 List<CameraDescription> cameras = [];
 
-class CameraScreen extends StatefulWidget {
+class CameraScreen extends ConsumerStatefulWidget {
   const CameraScreen({Key? key}) : super(key: key);
 
   @override
   _CameraScreenState createState() => _CameraScreenState();
 }
 
-class _CameraScreenState extends State<CameraScreen> {
+class _CameraScreenState extends ConsumerState<CameraScreen> {
   CameraController? _controller;
   ObjectDetector? _objectDetector;
   final SideBarWidget _sideBar = SideBarWidget(key: SideBarWidget.sideBarKey);
@@ -217,19 +219,27 @@ class _CameraScreenState extends State<CameraScreen> {
     }
   }
 
-  void _saveReport() {
-    ReportManager.addReport(
-      carCount: _currentCarCount,
-      motorcycleCount: _currentMotorcycleCount,
-      busCount: _currentBusCount,
-      truckCount: _currentTruckCount,
-      estimatedTime: _currentEstimatedTime,
-      timestamp: DateTime.now(),
-    );
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Reporte guardado exitosamente!')),
-    );
-  }
+ void _saveReport() {
+  // Calcula el tiempo estimado basado en el conteo de vehículos
+  int totalVehicles = _currentCarCount + _currentMotorcycleCount + _currentBusCount + _currentTruckCount;
+  int totalMinutes = totalVehicles * 2;  // Cada vehículo suma 2 minutos
+
+  String estimatedTime = "$totalMinutes min";  // Guardamos solo los minutos
+
+  // Ahora llamamos a ReportManager.addReport pasando el estimatedTime calculado
+  ReportManager.addReport(
+    carCount: _currentCarCount,
+    motorcycleCount: _currentMotorcycleCount,
+    busCount: _currentBusCount,
+    truckCount: _currentTruckCount,
+    timestamp: DateTime.now(),
+  );
+
+  // Mostrar un mensaje de éxito
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(content: Text('Reporte guardado exitosamente!')),
+  );
+}
 
   @override
   void dispose() {

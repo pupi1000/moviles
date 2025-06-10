@@ -1,31 +1,10 @@
-// lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:camera/camera.dart';
 import 'camera_screen.dart';
 import 'reports_screen.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart'; // Asegúrate de tener Riverpod instalado
 
-// cameras ahora es `late` y se inicializa en main()
-late List<CameraDescription> cameras;
-
-Future<void> main() async {
-  // Asegúrate de que los widgets de Flutter estén inicializados.
-  WidgetsFlutterBinding.ensureInitialized();
-
-  // Configura la orientación preferida de la pantalla a vertical.
-  SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
-
-  // Inicializa las cámaras disponibles una vez al inicio de la aplicación.
-  try {
-    cameras = await availableCameras();
-  } on CameraException catch (e) {
-    // Manejo de errores si no se pueden obtener las cámaras.
-    print('Error getting available cameras: $e');
-  }
-
+void main() {
   runApp(const MyApp());
 }
 
@@ -34,27 +13,25 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Detector de Filas de Gasolina',
-      theme: ThemeData(
-        // Define un tema de colores primario.
-        primarySwatch: Colors.blue,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.deepPurple, // Color de AppBar global
-          foregroundColor: Colors.white, // Color del texto e iconos en la AppBar
-          centerTitle: true, // Centra el título de la AppBar
+    return ProviderScope( // Riverpod provider scope
+      child: MaterialApp(
+        title: 'Detector de Filas de Gasolina',
+        theme: ThemeData(
+          primarySwatch: Colors.teal,
+          visualDensity: VisualDensity.adaptivePlatformDensity,
+          appBarTheme: const AppBarTheme(
+            backgroundColor: Colors.teal, // Color de la AppBar
+            foregroundColor: Colors.white, // Color del texto en la AppBar
+            centerTitle: true,
+          ),
+          colorScheme: ColorScheme.fromSwatch(primarySwatch: Colors.teal).copyWith(secondary: Colors.orange),
         ),
-        // Define un esquema de colores para Flutter 2.0+
-        colorScheme: ColorScheme.fromSwatch(primarySwatch: Colors.deepPurple).copyWith(secondary: Colors.orangeAccent),
+        home: const HomeScreen(),
+        routes: {
+          '/camera': (context) => const CameraScreen(),
+          '/reports': (context) => const ReportsScreen(),
+        },
       ),
-      // Define las rutas de navegación de la aplicación.
-      initialRoute: '/', // Ruta inicial
-      routes: {
-        '/': (context) => const HomeScreen(), // Pantalla de inicio
-        '/camera': (context) => const CameraScreen(), // Pantalla de la cámara
-        '/reports': (context) => const ReportsScreen(), // Pantalla de reportes
-      },
     );
   }
 }
@@ -66,57 +43,52 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Detector de Filas de Vehículos'),
+        title: const Text(
+          'Sistema de Detección de Filas',
+          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: Colors.teal,
+        centerTitle: true,
       ),
       body: Container(
-        // Fondo con un gradiente de color para un diseño más atractivo.
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Colors.blueAccent, Colors.purpleAccent],
+            colors: [Colors.teal, Colors.blueAccent],
           ),
         ),
         child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              // Título principal con estilo y sombra para destacar.
               Text(
-                'Sistema de Detección de Filas',
+                'Bienvenido al sistema de Detección de Filas',
                 style: TextStyle(
-                  fontSize: 32,
+                  fontSize: 28,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                   shadows: [
-                    Shadow(
-                      offset: Offset(2, 2),
-                      blurRadius: 3.0,
-                      color: Colors.black.withOpacity(0.5),
-                    ),
+                    Shadow(offset: Offset(2, 2), blurRadius: 5, color: Colors.black)
                   ],
                 ),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 60), // Espacio vertical
-
-              // Botón "Iniciar Detección" con estilo personalizado.
+              const SizedBox(height: 40),
               _buildMainMenuButton(
                 context,
                 'Iniciar Detección',
                 Icons.videocam,
                 '/camera',
-                Colors.green.shade600, // Color de fondo del botón
+                Colors.green,
               ),
-              const SizedBox(height: 25), // Espacio vertical
-
-              // Botón "Ver Reportes" con estilo personalizado.
+              const SizedBox(height: 25),
               _buildMainMenuButton(
                 context,
                 'Ver Reportes',
                 Icons.list_alt,
                 '/reports',
-                Colors.orange.shade600, // Color de fondo del botón
+                Colors.orange,
               ),
             ],
           ),
@@ -125,29 +97,29 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  // Función auxiliar para construir botones de menú con estilo consistente.
-  Widget _buildMainMenuButton(BuildContext context, String text, IconData icon, String route, Color color) {
+  Widget _buildMainMenuButton(
+      BuildContext context, String text, IconData icon, String route, Color color) {
     return SizedBox(
-      width: 250, // Ancho fijo para los botones
-      height: 60, // Altura fija para los botones
+      width: 250,
+      height: 60,
       child: ElevatedButton.icon(
         onPressed: () {
-          Navigator.pushNamed(context, route); // Navega a la ruta especificada al presionar
+          Navigator.pushNamed(context, route);
         },
-        icon: Icon(icon, size: 30), // Icono del botón más grande
+        icon: Icon(icon, size: 30),
         label: Text(
           text,
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
         style: ElevatedButton.styleFrom(
-          backgroundColor: color, // Color de fondo personalizado
-          foregroundColor: Colors.white, // Color del texto e icono
+          backgroundColor: color,
+          foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(30), // Bordes más redondeados
+            borderRadius: BorderRadius.circular(30),
           ),
-          elevation: 8, // Mayor sombra para un efecto 3D
-          animationDuration: const Duration(milliseconds: 300), // Duración de la animación al presionar
-          shadowColor: color.withOpacity(0.5), // Color de la sombra basado en el color del botón
+          elevation: 10,
+          shadowColor: color.withOpacity(0.5),
+          animationDuration: Duration(milliseconds: 300),
         ),
       ),
     );
