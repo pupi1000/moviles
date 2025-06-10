@@ -1,10 +1,14 @@
+import 'package:flutter/material.dart'; // Solo necesario si se usa Material/Widgets
+import 'package:intl/intl.dart'; // Importar para formato de fecha/hora
+
+// Clase Report para estructurar la información de cada detección
 class Report {
   final int carCount;
   final int motorcycleCount;
   final int busCount;
   final int truckCount;
-  final String estimatedTime; // Tiempo estimado en minutos
-  final DateTime timestamp;
+  final String estimatedTime; // Tiempo estimado en formato de minutos (ej. "10 min")
+  final DateTime timestamp; // Fecha y hora exacta de la detección
 
   Report({
     required this.carCount,
@@ -12,15 +16,19 @@ class Report {
     required this.busCount,
     required this.truckCount,
     required this.timestamp,
-    required this.estimatedTime, // Tiempo calculado
+    required this.estimatedTime, // Se requiere que el tiempo ya venga calculado y formateado
   });
 }
 
+// Clase ReportManager para gestionar la adición y recuperación de reportes
 class ReportManager {
+  // Lista estática para almacenar todos los reportes. Permite acceso global.
   static final List<Report> _reports = [];
 
+  // Getter para acceder a la lista de reportes (solo lectura)
   static List<Report> get reports => _reports;
 
+  // Método para añadir un nuevo reporte a la lista
   static void addReport({
     required int carCount,
     required int motorcycleCount,
@@ -28,26 +36,25 @@ class ReportManager {
     required int truckCount,
     required DateTime timestamp,
   }) {
-    // Calculamos el tiempo estimado en minutos, sumando 2 minutos por vehículo
+    // Calcula el tiempo estimado en minutos
     int totalVehicles = carCount + motorcycleCount + busCount + truckCount;
 
-    // Cada vehículo suma 2 minutos
+    // Cada vehículo suma 2 minutos al tiempo de espera estimado
     int totalMinutes = totalVehicles * 2;
 
-    // Solo mostramos el tiempo en minutos
-    String estimatedTime = "$totalMinutes min";  // Mostrar solo minutos, sin segundos
+    // Formatea el tiempo estimado para mostrar solo minutos
+    String estimatedTime = "$totalMinutes min"; // Ejemplo: "10 min"
 
-    // Añadimos el reporte calculando el tiempo estimado
+    // Añade el nuevo reporte a la lista, con el tiempo estimado calculado
     _reports.add(
       Report(
         carCount: carCount,
         motorcycleCount: motorcycleCount,
         busCount: busCount,
         truckCount: truckCount,
-        estimatedTime: estimatedTime, // Pasamos solo los minutos
+        estimatedTime: estimatedTime, // Pasa el tiempo ya formateado
         timestamp: timestamp,
       ),
     );
   }
 }
-

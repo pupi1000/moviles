@@ -1,50 +1,50 @@
-// lib/sidebar_widget.dart
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'vehicle_count_provider.dart';
 
-class SideBarWidget extends StatefulWidget {
-  // ¡IMPORTANTE! REMUEVE 'final' y 'const' de aquí si los tienes
-  static GlobalKey<_SideBarWidgetState> sideBarKey =
-      GlobalKey<_SideBarWidgetState>();
+// Definir una clave global para poder acceder al estado de SideBarWidget
+class SideBarWidget extends ConsumerStatefulWidget {
+  static final GlobalKey<_SideBarWidgetState> sideBarKey = GlobalKey<_SideBarWidgetState>();
 
-  // ¡IMPORTANTE! REMUEVE 'const' del constructor si lo tienes
-  SideBarWidget({Key? key}) : super(key: sideBarKey);
+  SideBarWidget({Key? key}) : super(key: key ?? sideBarKey);
 
   @override
   _SideBarWidgetState createState() => _SideBarWidgetState();
 }
 
-class _SideBarWidgetState extends State<SideBarWidget> {
+class _SideBarWidgetState extends ConsumerState<SideBarWidget> {
   int _carCount = 0;
   int _motorcycleCount = 0;
   int _busCount = 0;
   int _truckCount = 0;
-  String _estimatedTime = "00:00"; // Formato HH:MM
+  String _estimatedTime = "0 min";
 
-  void incrementCarCount() {
+  // Métodos para actualizar los contadores
+  void updateCarCount(int count) {
     setState(() {
-      _carCount++;
-      updateEstimatedTime(); // Llama a la actualización cada vez que un contador cambia
+      _carCount = count;
+      _updateEstimatedTime();
     });
   }
 
-  void incrementMotorcycleCount() {
+  void updateMotorcycleCount(int count) {
     setState(() {
-      _motorcycleCount++;
-      updateEstimatedTime(); // Llama a la actualización cada vez que un contador cambia
+      _motorcycleCount = count;
+      _updateEstimatedTime();
     });
   }
 
-  void incrementBusCount() {
+  void updateBusCount(int count) {
     setState(() {
-      _busCount++;
-      updateEstimatedTime(); // Llama a la actualización cada vez que un contador cambia
+      _busCount = count;
+      _updateEstimatedTime();
     });
   }
 
-  void incrementTruckCount() {
+  void updateTruckCount(int count) {
     setState(() {
-      _truckCount++;
-      updateEstimatedTime(); // Llama a la actualización cada vez que un contador cambia
+      _truckCount = count;
+      _updateEstimatedTime();
     });
   }
 
@@ -54,116 +54,82 @@ class _SideBarWidgetState extends State<SideBarWidget> {
       _motorcycleCount = 0;
       _busCount = 0;
       _truckCount = 0;
-      updateEstimatedTime(); // Resetea el tiempo al resetear contadores
+      _updateEstimatedTime();
     });
   }
 
-  void updateEstimatedTime() {
-    // Lógica de cálculo de tiempo: 2 minutos por cada vehículo
+  void _updateEstimatedTime() {
     int totalVehicles = _carCount + _motorcycleCount + _busCount + _truckCount;
-    int estimatedMinutes = totalVehicles * 2; // 2 minutos por cada vehículo
-
-    int hours = estimatedMinutes ~/ 60;
-    int minutes = estimatedMinutes % 60;
-
-    // Asegurarse de que el formato sea HH:MM
+    int totalMinutes = totalVehicles * 2; // 2 minutos por vehículo
     setState(() {
-      _estimatedTime =
-          "${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}";
+      _estimatedTime = "$totalMinutes min";
     });
   }
 
-  String getEstimatedTime() {
-    return _estimatedTime;
-  }
+  String getEstimatedTime() => _estimatedTime; // Getter para el tiempo estimado
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 160, // Aumenta un poco el ancho para evitar el overflow
+      width: 150, // Ancho de la barra lateral
       decoration: BoxDecoration(
-        color: Colors.black54,
-        borderRadius: BorderRadius.circular(15),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.3),
-            spreadRadius: 3,
-            blurRadius: 7,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        color: Colors.black.withOpacity(0.6), // Fondo semitransparente
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(15),
+          bottomLeft: Radius.circular(15),
+        ),
       ),
-      padding: const EdgeInsets.all(16.0),
-      margin: const EdgeInsets.all(10.0),
+      padding: const EdgeInsets.all(10),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          const Text(
-            'Conteo:',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              shadows: [
-                Shadow(offset: Offset(1, 1), blurRadius: 2.0, color: Colors.black),
-              ],
-            ),
+        children: [
+          _buildCounterItem(Icons.directions_car, "Autos", _carCount, Colors.blue),
+          _buildCounterItem(Icons.motorcycle, "Motos", _motorcycleCount, Colors.orange),
+          _buildCounterItem(Icons.directions_bus, "Buses", _busCount, Colors.red),
+          _buildCounterItem(Icons.local_shipping, "Camiones", _truckCount, Colors.purple),
+          const Divider(color: Colors.white70, thickness: 1, height: 20),
+          _buildTimeEstimation(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCounterItem(IconData icon, String label, int count, Color color) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 30),
+          Text(
+            label,
+            style: TextStyle(color: color, fontSize: 14, fontWeight: FontWeight.bold),
           ),
-          const SizedBox(height: 10),
-          _buildCountRow('Carros:', _carCount, Icons.car_rental),
-          _buildCountRow('Motos:', _motorcycleCount, Icons.two_wheeler),
-          _buildCountRow('Buses:', _busCount, Icons.directions_bus),
-          _buildCountRow('Camiones:', _truckCount, Icons.local_shipping), // Eliminada la alerta visual
-          const SizedBox(height: 20),
-          const Text(
-            'Tiempo estimado:',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              shadows: [
-                Shadow(offset: Offset(1, 1), blurRadius: 2.0, color: Colors.black),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Text(
-              _estimatedTime, // Aquí se muestra la cadena HH:MM
-              style: const TextStyle(
-                color: Colors.orange,
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
-                shadows: [
-                  Shadow(offset: Offset(1, 1), blurRadius: 2.0, color: Colors.black),
-                ],
-              ),
-            ),
+          Text(
+            '$count',
+            style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildCountRow(String label, int count, IconData icon) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
-      child: Row(
-        children: [
-          Icon(icon, color: Colors.white70, size: 20),
-          const SizedBox(width: 8),
-          Text(
-            '$label $count',
-            style: const TextStyle(color: Colors.white, fontSize: 16),
-          ),
-        ],
-      ),
+  Widget _buildTimeEstimation() {
+    return Column(
+      children: [
+        const Icon(Icons.timer, color: Colors.white, size: 30),
+        const Text(
+          "Est. Espera",
+          style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+        ),
+        Text(
+          _estimatedTime,
+          style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+        ),
+      ],
     );
   }
+
+
+
+  void updateEstimatedTime() {}
 }

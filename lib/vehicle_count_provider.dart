@@ -1,53 +1,72 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-final vehicleCountProvider = StateNotifierProvider<VehicleCountNotifier, VehicleCount>((ref) {
-  return VehicleCountNotifier();
-});
+// Define un estado para los contadores de vehículos
+class VehicleCounts {
+  final int cars;
+  final int motorcycles;
+  final int buses;
+  final int trucks;
+  final String estimatedTime;
 
-class VehicleCount {
-  final int carCount;
-  final int motorcycleCount;
-  final int busCount;
-  final int truckCount;
-
-  VehicleCount({
-    required this.carCount,
-    required this.motorcycleCount,
-    required this.busCount,
-    required this.truckCount,
+  VehicleCounts({
+    this.cars = 0,
+    this.motorcycles = 0,
+    this.buses = 0,
+    this.trucks = 0,
+    this.estimatedTime = "0 min",
   });
 
-  VehicleCount copyWith({
-    int? carCount,
-    int? motorcycleCount,
-    int? busCount,
-    int? truckCount,
+  // Método copyWith para crear una nueva instancia con valores actualizados
+  VehicleCounts copyWith({
+    int? cars,
+    int? motorcycles,
+    int? buses,
+    int? trucks,
+    String? estimatedTime,
   }) {
-    return VehicleCount(
-      carCount: carCount ?? this.carCount,
-      motorcycleCount: motorcycleCount ?? this.motorcycleCount,
-      busCount: busCount ?? this.busCount,
-      truckCount: truckCount ?? this.truckCount,
+    return VehicleCounts(
+      cars: cars ?? this.cars,
+      motorcycles: motorcycles ?? this.motorcycles,
+      buses: buses ?? this.buses,
+      trucks: trucks ?? this.trucks,
+      estimatedTime: estimatedTime ?? this.estimatedTime,
     );
   }
 }
 
-class VehicleCountNotifier extends StateNotifier<VehicleCount> {
-  VehicleCountNotifier() : super(VehicleCount(carCount: 0, motorcycleCount: 0, busCount: 0, truckCount: 0));
+// Un StateNotifier para gestionar el estado de los contadores de vehículos
+class VehicleCountNotifier extends StateNotifier<VehicleCounts> {
+  VehicleCountNotifier() : super(VehicleCounts());
 
-  void incrementCarCount() {
-    state = state.copyWith(carCount: state.carCount + 1);
+  void updateCounts({
+    int? cars,
+    int? motorcycles,
+    int? buses,
+    int? trucks,
+  }) {
+    final newCars = cars ?? state.cars;
+    final newMotorcycles = motorcycles ?? state.motorcycles;
+    final newBuses = buses ?? state.buses;
+    final newTrucks = trucks ?? state.trucks;
+
+    final totalVehicles = newCars + newMotorcycles + newBuses + newTrucks;
+    final estimatedMinutes = totalVehicles * 2; // 2 minutos por vehículo
+
+    state = state.copyWith(
+      cars: newCars,
+      motorcycles: newMotorcycles,
+      buses: newBuses,
+      trucks: newTrucks,
+      estimatedTime: "$estimatedMinutes min",
+    );
   }
 
-  void incrementMotorcycleCount() {
-    state = state.copyWith(motorcycleCount: state.motorcycleCount + 1);
-  }
-
-  void incrementBusCount() {
-    state = state.copyWith(busCount: state.busCount + 1);
-  }
-
-  void incrementTruckCount() {
-    state = state.copyWith(truckCount: state.truckCount + 1);
+  void resetCounts() {
+    state = VehicleCounts(); // Vuelve al estado inicial
   }
 }
+
+// El provider que expone el StateNotifier
+final vehicleCountProvider = StateNotifierProvider<VehicleCountNotifier, VehicleCounts>(
+  (ref) => VehicleCountNotifier(),
+);
